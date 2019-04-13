@@ -1,0 +1,9 @@
+[package]
+name = "zerosim-trace"
+version = "0.1.0"
+authors = ["Mark Mansi <markm@cs.wisc.edu>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2.51"
+num_cpus = "1.10.0"
