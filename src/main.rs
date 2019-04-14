@@ -1,3 +1,7 @@
+//! A simple program that traces using zerosim-trace and outputs the results.
+
+use itertools::Itertools;
+
 use libc::syscall;
 
 const BEGIN_SYSCALL_NR: i64 = 546;
@@ -62,13 +66,19 @@ fn main() {
 
     let snap = snapshot();
 
-    println!("{:#?}", snap.buffer.iter().take(50).collect::<Vec<_>>());
+    for cpu in &snap.buffer.into_iter().chunks(PER_CPU_TRACE_BUFFER_SIZE) {
+        for ev in cpu {
+            println!("{:?}", ev);
+        }
+    }
 }
 
 fn size() {
-    let ret = unsafe { syscall(SIZE_SYSCALL_NR, 1<<12) };
+    let ret = unsafe { syscall(SIZE_SYSCALL_NR, 1 << 12) };
     if ret != 0 {
-        unsafe { libc::perror(std::ptr::null_mut()); }
+        unsafe {
+            libc::perror(std::ptr::null_mut());
+        }
         panic!();
     }
 }
@@ -76,7 +86,9 @@ fn size() {
 fn begin() {
     let ret = unsafe { syscall(BEGIN_SYSCALL_NR) };
     if ret != 0 {
-        unsafe { libc::perror(std::ptr::null_mut()); }
+        unsafe {
+            libc::perror(std::ptr::null_mut());
+        }
         panic!();
     }
 }
@@ -91,7 +103,9 @@ fn snapshot() -> Snapshot {
         syscall(SNAPSHOT_SYSCALL_NR, ptr, cap)
     };
     if ret != 0 {
-        unsafe { libc::perror(std::ptr::null_mut()); }
+        unsafe {
+            libc::perror(std::ptr::null_mut());
+        }
         panic!();
     }
 
