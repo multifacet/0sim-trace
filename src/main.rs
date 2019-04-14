@@ -66,9 +66,15 @@ fn main() {
 
     let snap = snapshot();
 
-    for cpu in &snap.buffer.into_iter().chunks(PER_CPU_TRACE_BUFFER_SIZE) {
+    for (i, cpu) in snap
+        .buffer
+        .into_iter()
+        .chunks(PER_CPU_TRACE_BUFFER_SIZE)
+        .into_iter()
+        .enumerate()
+    {
         for ev in cpu {
-            println!("{:?}", ev);
+            println!("{} {:?}", i, ev);
         }
     }
 }
