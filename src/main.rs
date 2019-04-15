@@ -22,6 +22,8 @@ struct Trace {
     timestamp: u64,
     id: u32,
     flags: u32,
+    pid: u32,
+    extra: u32,
 }
 
 impl std::fmt::Debug for Trace {
