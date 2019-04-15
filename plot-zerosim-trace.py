@@ -522,8 +522,10 @@ def onpick(event):
                 trace_ev[3] - trace_ev[2],
                 trace_ev[6], trace_ev[7])
     else:
-        text = "{} id: {}\npid: {}\nextra: {}".format(
-                trace_ev[0], trace_ev[4], trace_ev[5], trace_ev[6])
+        text = "{} id: {}{}\npid: {}\nextra: {}".format(
+                trace_ev[0], trace_ev[4],
+                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev[5]]) if trace_ev[1] == "SYSCALL" else "",
+                trace_ev[5], trace_ev[6])
 
     annot.set_text(text)
     annot.get_bbox_patch().set_facecolor("grey")
