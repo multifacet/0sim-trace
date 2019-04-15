@@ -30,7 +30,7 @@ impl std::fmt::Debug for Trace {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "{{ {:<15} {:5} ts: {}, flags: {:8b}, id: {} }}",
+            "{{ {:<15} {:5} ts: {}, flags: {:8b}, id: {}, pid: {}, extra: {} }}",
             if self.flags & ZEROSIM_TRACE_TASK_SWITCH != 0 {
                 "TASK_SWITCH"
             } else if self.flags & ZEROSIM_TRACE_INTERRUPT != 0 {
@@ -50,6 +50,8 @@ impl std::fmt::Debug for Trace {
             self.timestamp,
             self.flags,
             self.id,
+            self.pid,
+            self.extra,
         )
     }
 }
