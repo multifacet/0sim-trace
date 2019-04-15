@@ -8,7 +8,7 @@ const BEGIN_SYSCALL_NR: i64 = 546;
 const SNAPSHOT_SYSCALL_NR: i64 = 547;
 const SIZE_SYSCALL_NR: i64 = 548;
 
-const PER_CPU_TRACE_BUFFER_SIZE: usize = 1_000_000;
+const PER_CPU_TRACE_BUFFER_SIZE: usize = 1 << 12;
 
 const ZEROSIM_TRACE_TASK_SWITCH: u32 = 0x0000_0001;
 const ZEROSIM_TRACE_INTERRUPT: u32 = 0x0000_0002;
@@ -80,7 +80,7 @@ fn main() {
 }
 
 fn size() {
-    let ret = unsafe { syscall(SIZE_SYSCALL_NR, 1 << 12) };
+    let ret = unsafe { syscall(SIZE_SYSCALL_NR, PER_CPU_TRACE_BUFFER_SIZE) };
     if ret != 0 {
         unsafe {
             libc::perror(std::ptr::null_mut());
