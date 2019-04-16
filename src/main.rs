@@ -12,9 +12,11 @@ const PER_CPU_TRACE_BUFFER_SIZE: usize = 1 << 12;
 
 const ZEROSIM_TRACE_TASK_SWITCH: u32 = 0x0000_0001;
 const ZEROSIM_TRACE_INTERRUPT: u32 = 0x0000_0002;
-const ZEROSIM_TRACE_FAULT: u32 = 0x0000_0004;
-const ZEROSIM_TRACE_SYSCALL: u32 = 0x0000_0008;
-const ZEROSIM_TRACE_START: u32 = 0x0000_0010;
+const ZEROSIM_TRACE_FAULT: u32 = 0x0000_0003;
+const ZEROSIM_TRACE_SYSCALL: u32 = 0x0000_0004;
+const ZEROSIM_TRACE_SOFTIRQ: u32 = 0x0000_0005;
+
+const ZEROSIM_TRACE_START: u32 = 0x8000_0000;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -28,17 +30,20 @@ struct Trace {
 
 impl std::fmt::Debug for Trace {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let ty = self.flags & !ZEROSIM_TRACE_START;
         write!(
             f,
             "{{ {:<15} {:5} ts: {}, flags: {:8b}, id: {}, pid: {}, extra: {} }}",
-            if self.flags & ZEROSIM_TRACE_TASK_SWITCH != 0 {
+            if ty == ZEROSIM_TRACE_TASK_SWITCH {
                 "TASK_SWITCH"
-            } else if self.flags & ZEROSIM_TRACE_INTERRUPT != 0 {
+            } else if ty == ZEROSIM_TRACE_INTERRUPT {
                 "INTERRUPT"
-            } else if self.flags & ZEROSIM_TRACE_FAULT != 0 {
+            } else if ty == ZEROSIM_TRACE_FAULT {
                 "FAULT"
-            } else if self.flags & ZEROSIM_TRACE_SYSCALL != 0 {
+            } else if ty == ZEROSIM_TRACE_SYSCALL {
                 "SYSCALL"
+            } else if ty == ZEROSIM_TRACE_SOFTIRQ {
+                "SOFTIRQ"
             } else {
                 "??"
             },
