@@ -550,7 +550,7 @@ def onpick(event):
 fig.canvas.mpl_connect("pick_event", onpick)
 
 # X axis label
-plt.ylabel("Time Elapsed (usec)")
+plt.xlabel("Time Elapsed (usec)")
 
 # Remove components for a cleaner look
 plt.setp((ax.get_yticklabels() + ax.get_yticklines() +
