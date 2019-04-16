@@ -14,6 +14,7 @@ RE=r'''(\d+) { ([\w?_]+)\s+(\w+)?\s+ts: (\d+), flags:\s+(\d+), id: (\d+), pid: (
 FREQ=3.5E3
 
 INTERVAL_HEIGHT=0.3
+TASK_HEIGHT=INTERVAL_HEIGHT/2
 
 START_MARKER='>'
 END_MARKER='<'
@@ -392,7 +393,13 @@ max_ts = None
 
 per_cpu_min_ts = {}
 
+# Keep track of the pids for all events. When the pid changes, we start a new
+# interval for a new task.
+per_cpu_tasks = {}
+
 with open(filename, 'r') as f:
+    prev_task = {}
+
     for line in f.readlines():
         m = re.match(RE, line)
 
@@ -411,11 +418,15 @@ with open(filename, 'r') as f:
         if core not in data:
             data[core] = []
             per_cpu_min_ts[core] = None
+            per_cpu_tasks[core] = []
+            prev_task[core] = None
 
         if start == 0 and ts == 0 and flags == 0 and ev_id == 0:
             continue
 
-        data[core].append((event, start, ts, flags, ev_id, pid, extra))
+        ev = (event, start, ts, flags, ev_id, pid, extra)
+
+        data[core].append(ev)
 
         if min_ts is None or ts < min_ts:
             min_ts = ts
@@ -424,6 +435,16 @@ with open(filename, 'r') as f:
 
         if per_cpu_min_ts[core] is None or ts < per_cpu_min_ts[core]:
             per_cpu_min_ts[core] = ts
+
+        if prev_task[core] is None:
+            prev_task[core] = ev
+        elif prev_task[core][5] != ev[5]:
+            per_cpu_tasks[core].append((prev_task[core], ev[2]))
+            prev_task[core] = ev
+
+    for cpu, task in prev_task.items():
+        if task is not None:
+            per_cpu_tasks[cpu].append((task, max_ts))
 
 # Process to get matching events
 for cpu, cpu_data in data.items():
@@ -466,9 +487,29 @@ for cpu in range(len(data)):
 
     ax.text((min_ts - max_ts) * 0.01, cpu, "CPU%d" % cpu, horizontalalignment='right', verticalalignment='center', fontsize=14)
     ax.plot((0, per_cpu_min_ts[cpu] - min_ts), (cpu, cpu), 'k', alpha=0.2, linestyle="dashed")
-    ax.plot((per_cpu_min_ts[cpu] - min_ts, max_ts - min_ts), (cpu, cpu), 'k', alpha=0.2)
+    #ax.plot((per_cpu_min_ts[cpu] - min_ts, max_ts - min_ts), (cpu, cpu), 'k', alpha=0.2)
 
 np.random.seed(0)
+
+# Plot processes/tasks
+
+task_colors = {}
+
+def get_task_color(pid):
+    if pid in task_colors:
+        return task_colors[pid]
+    else:
+        task_colors[pid] = np.random.rand(3,)
+        return get_task_color(pid)
+
+for cpu, tasks in per_cpu_tasks.items():
+    for ev, end_ts in tasks:
+        #print("%d %f + %f (%f)" % (ev[5], ev[2] - min_ts, end_ts - ev[2], end_ts))
+        rect = patches.Rectangle((ev[2] - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev[2],
+                TASK_HEIGHT, color=get_task_color(ev[5]), fill=True, alpha=0.3)
+        ax.add_patch(rect)
+
+# Plot the actual events
 
 label_colors = {}
 
@@ -481,7 +522,6 @@ def get_label_color(label):
 
 plot_map = {}
 
-# Iterate through releases annotating each one
 for cpu, cpu_data in data.items():
     for ev in cpu_data:
         if ev[0] == 'interval':
