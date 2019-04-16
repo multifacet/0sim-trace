@@ -390,6 +390,8 @@ data = {}
 min_ts = None
 max_ts = None
 
+per_cpu_min_ts = {}
+
 with open(filename, 'r') as f:
     for line in f.readlines():
         m = re.match(RE, line)
@@ -408,6 +410,7 @@ with open(filename, 'r') as f:
 
         if core not in data:
             data[core] = []
+            per_cpu_min_ts[core] = None
 
         if start == 0 and ts == 0 and flags == 0 and ev_id == 0:
             continue
@@ -418,6 +421,9 @@ with open(filename, 'r') as f:
             min_ts = ts
         if max_ts is None or ts > max_ts:
             max_ts = ts
+
+        if per_cpu_min_ts[core] is None or ts < per_cpu_min_ts[core]:
+            per_cpu_min_ts[core] = ts
 
 # Process to get matching events
 for cpu, cpu_data in data.items():
@@ -455,8 +461,12 @@ fig, ax = plt.subplots(figsize=(8, 5))
 
 # Create a line for each CPU
 for cpu in range(len(data)):
+    if per_cpu_min_ts[cpu] is None:
+        per_cpu_min_ts[cpu] = max_ts
+
     ax.text((min_ts - max_ts) * 0.01, cpu, "CPU%d" % cpu, horizontalalignment='right', verticalalignment='center', fontsize=14)
-    ax.plot((0, max_ts - min_ts), (cpu, cpu), 'k', alpha=0.2)
+    ax.plot((0, per_cpu_min_ts[cpu] - min_ts), (cpu, cpu), 'k', alpha=0.2, linestyle="dashed")
+    ax.plot((per_cpu_min_ts[cpu] - min_ts, max_ts - min_ts), (cpu, cpu), 'k', alpha=0.2)
 
 np.random.seed(0)
 
@@ -490,10 +500,13 @@ for cpu, cpu_data in data.items():
             plot_map[sc] = (cpu, ev)
 
 # Custom legend
-legend_elements = [lines.Line2D([0], [0], markerfacecolor='k', marker=START_MARKER, \
-                        markersize=15, color='w', label='Start'),
+legend_elements = [
+                   lines.Line2D([0], [0], color='k', alpha=0.2,
+                       linestyle="dashed", label='Not Measured'),
+                   lines.Line2D([0], [0], markerfacecolor='k', marker=START_MARKER, \
+                       markersize=15, color='w', label='Start'),
                    lines.Line2D([0], [0], markerfacecolor='k', marker=END_MARKER, \
-                        markersize=15, color='w', label='End'),
+                       markersize=15, color='w', label='End'),
                    ]
 
 for label, color in label_colors.items():
@@ -535,6 +548,9 @@ def onpick(event):
     fig.canvas.draw_idle()
 
 fig.canvas.mpl_connect("pick_event", onpick)
+
+# X axis label
+plt.ylabel("Time Elapsed (usec)")
 
 # Remove components for a cleaner look
 plt.setp((ax.get_yticklabels() + ax.get_yticklines() +
