@@ -1,25 +1,53 @@
 //! A simple program that traces using zerosim-trace and outputs the results.
 
-use tracing::ZerosimTracer;
-
 mod tracing;
 
-const PER_CPU_TRACE_BUFFER_SIZE: usize = 2 << 12;
+use clap::clap_app;
+
+use tracing::{Snapshot, ZerosimTracer};
+
+fn is_usize(s: String) -> Result<(), String> {
+    s.parse::<usize>().map(|_| ()).map_err(|e| format!("{}", e))
+}
 
 fn main() -> Result<(), failure::Error> {
-    let mut zs = ZerosimTracer::init(PER_CPU_TRACE_BUFFER_SIZE)?;
+    let matches = clap_app! {zerosim_trace =>
+        (about: "Takes periodic traces using the 0sim tracing API.")
+        (@arg INTERVAL: +required {is_usize}
+         "The interval to take snapshots at in milliseconds.")
+        (@arg BUFFER_SIZE: +required {is_usize}
+         "The number of events to buffer on each CPU per snapshot.")
+    }
+    .get_matches();
 
-    let pending = zs.begin(None)?;
+    let interval = matches
+        .value_of("INTERVAL")
+        .unwrap()
+        .parse::<usize>()
+        .unwrap() as u64;
+    let buffer_size = matches
+        .value_of("BUFFER_SIZE")
+        .unwrap()
+        .parse::<usize>()
+        .unwrap();
 
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    let mut zs = ZerosimTracer::init(buffer_size)?;
 
-    let snap = pending.snapshot();
+    loop {
+        let pending = zs.begin(None)?;
 
+        std::thread::sleep(std::time::Duration::from_millis(interval));
+
+        let snap = pending.snapshot();
+
+        let _ = std::thread::spawn(move || process_snapshot(snap));
+    }
+}
+
+fn process_snapshot(snap: Snapshot) {
     for (i, cpu) in snap.cpus().into_iter().enumerate() {
         for ev in cpu {
             println!("{} {:?}", i, ev);
         }
     }
-
-    Ok(())
 }
