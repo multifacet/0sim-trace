@@ -41,7 +41,10 @@ impl ZerosimTracer {
 
         sys::begin()?;
 
-        Ok(PendingSnapshot { size: self.size })
+        Ok(PendingSnapshot {
+            size: self.size,
+            captured: false,
+        })
     }
 }
 
@@ -51,11 +54,13 @@ impl ZerosimTracer {
 #[derive(Debug)]
 pub struct PendingSnapshot {
     size: usize,
+    captured: bool,
 }
 
 impl PendingSnapshot {
     /// Capture a snapshot and return it.
-    pub fn snapshot(self) -> Snapshot {
+    pub fn snapshot(mut self) -> Snapshot {
+        self.captured = true;
         Snapshot {
             buffer: unsafe { sys::snapshot(self.size) }
                 .drain(..)
@@ -68,7 +73,9 @@ impl PendingSnapshot {
 
 impl Drop for PendingSnapshot {
     fn drop(&mut self) {
-        let _ = unsafe { sys::snapshot(self.size) };
+        if !self.captured {
+            let _ = unsafe { sys::snapshot(self.size) };
+        }
     }
 }
 
