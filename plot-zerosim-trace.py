@@ -19,9 +19,6 @@ FREQ=3.5E3
 INTERVAL_HEIGHT=0.15
 TASK_HEIGHT=INTERVAL_HEIGHT*2
 
-START_MARKER='>'
-END_MARKER='<'
-
 LINUX_4_4_SYSCALLS_64_BIT = {
         0: "read",
         1: "write",
@@ -517,11 +514,13 @@ def get_task_color(pid):
 for cpu, tasks in per_cpu_tasks.items():
     for ev, end_ts in tasks:
         #print("%d %f + %f (%f)" % (ev[5], ev[2] - min_ts, end_ts - ev[2], end_ts))
-        rect = patches.Rectangle((ev[2] - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev[2],
-                TASK_HEIGHT, color=get_task_color(ev[5]), fill=True, alpha=1)
+        rect = patches.Rectangle(
+                (ev[2] - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev[2], TASK_HEIGHT, 
+                facecolor=get_task_color(ev[5]), alpha=1)
         task_patches.append(rect)
 
-ax.add_collection(collect.PatchCollection(task_patches, match_original=True))
+ax.add_collection(collect.PatchCollection(
+    task_patches, match_original=True, hatch='xx', edgecolor='#333333'))
 
 print("done plotting tasks %s" % datetime.datetime.now())
 
@@ -540,50 +539,42 @@ def get_label_color(label):
 
 plot_map = {}
 
+scattered = []
+scattered_events = []
+
 for cpu, cpu_data in data.items():
-    # Plot everything except softirqs, since they need to be plotted on top.
     for ev in cpu_data:
         if ev[0] == 'interval':
             # intervals (matched events)
-            if ev[1] == 'SOFTIRQ':
-                continue
             rect = patches.Rectangle(
-                    (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT, 
+                    (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT,
                     color=get_label_color(ev[1]), fill=True, alpha=1, picker=True)
             plot_map[rect] = (cpu, ev)
             events_patches.append(rect)
         else:
             # point event
-            sc = ax.scatter(ev[2] - min_ts, cpu, s=50,
-                    color=get_label_color(ev[0]),
-                    marker=START_MARKER if ev[1] else END_MARKER,
-                    zorder=9999, picker=True)
-            plot_map[sc] = (cpu, ev)
+            scattered.append((ev[2] - min_ts, cpu, get_label_color(ev[0])))
+            scattered_events.append((cpu,ev))
 
-    for ev in cpu_data:
-        if ev[0] == 'interval':
-            if ev[1] == 'SOFTIRQ':
-                rect = patches.Rectangle(
-                        (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT, 
-                        color=get_label_color(ev[1]), fill=True, alpha=1, picker=True)
-                plot_map[rect] = (cpu, ev)
-                events_patches.append(rect)
+# draw short event last so they are on top.
+# zorder doesn't work for collections of patches.
+events_patches.sort(reverse=True, key=lambda p: p.get_width())
 
 ax.add_collection(
         collect.PatchCollection(events_patches, match_original=True, picker=True,
             zorder=3))
 
+xs, ys, cs = zip(*scattered)
+ax.scatter(xs, ys, color=cs, marker='.', s=50, zorder=9999, picker=True)
+
 print("done plotting events %s" % datetime.datetime.now())
 
 # Custom legend
 legend_elements = [
-                   lines.Line2D([0], [0], color='k', alpha=0.2,
-                       linestyle="dashed", label='Not Measured'),
-                   lines.Line2D([0], [0], markerfacecolor='k', marker=START_MARKER, \
-                       markersize=15, color='w', label='Start'),
-                   lines.Line2D([0], [0], markerfacecolor='k', marker=END_MARKER, \
-                       markersize=15, color='w', label='End'),
-                   ]
+   lines.Line2D([0], [0], color='k', alpha=0.2, label='Not Measured'),
+   lines.Line2D([0], [0], markerfacecolor='k', marker='.', \
+           markersize=15, color='w', label='Discrete Event'),
+]
 
 for label, color in label_colors.items():
     legend_elements.append(lines.Line2D([0], [0], color=color, lw=4, label=label))
@@ -600,12 +591,15 @@ annot = ax.annotate("", xy=(0,0), xytext=(20,20),textcoords="offset points",
 annot.set_visible(False)
 
 def onpick(event):
-    artist = event.artist
+    cpu, trace_ev = None, None
 
-    if isinstance(artist, collect.PatchCollection):
-        artist = events_patches[event.ind[0]]
-
-    cpu, trace_ev = plot_map[artist]
+    if isinstance(event.artist, collect.PatchCollection):
+        cpu, trace_ev = plot_map[events_patches[event.ind[0]]]
+    elif isinstance(event.artist, collect.PathCollection):
+        cpu, trace_ev = scattered_events[event.ind[0]]
+    else:
+        print("Unknown artist type: %s" % event.artist)
+        return
 
     annot.xy = (trace_ev[2] - min_ts, cpu)
 
@@ -625,7 +619,7 @@ def onpick(event):
 
     annot.set_text(text)
     annot.get_bbox_patch().set_facecolor("grey")
-    annot.get_bbox_patch().set_alpha(0.4)
+    annot.get_bbox_patch().set_alpha(0.6)
 
     annot.set_visible(True)
     fig.canvas.draw_idle()
