@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.lines as lines
+import matplotlib.collections as collect
 import numpy as np
 import re
 import random
+import datetime
 
 from sys import argv
 
@@ -13,8 +16,8 @@ RE=r'''(\d+) { ([\w?_]+)\s+(\w+)?\s+ts: (\d+), flags:\s+(\d+), id: (\d+), pid: (
 
 FREQ=3.5E3
 
-INTERVAL_HEIGHT=0.3
-TASK_HEIGHT=INTERVAL_HEIGHT/2
+INTERVAL_HEIGHT=0.15
+TASK_HEIGHT=INTERVAL_HEIGHT*2
 
 START_MARKER='>'
 END_MARKER='<'
@@ -477,22 +480,31 @@ for cpu, cpu_data in data.items():
 
     data[cpu] = matched
 
-levels = np.array([-5, 5, -3, 3, -1, 1])
+print("done processing %s" % datetime.datetime.now())
+
+matplotlib.rcParams['agg.path.chunksize'] = 100000
 fig, ax = plt.subplots(figsize=(8, 5))
 
 # Create a line for each CPU
-for cpu in range(len(data)):
+
+cpu_lines = []
+
+for cpu in data:
     if per_cpu_min_ts[cpu] is None:
         per_cpu_min_ts[cpu] = max_ts
 
-    ax.text((min_ts - max_ts) * 0.01, cpu, "CPU%d" % cpu, horizontalalignment='right', verticalalignment='center', fontsize=14)
-    ax.plot((0, per_cpu_min_ts[cpu] - min_ts), (cpu, cpu), 'k', alpha=0.2, linestyle="dashed")
-    #ax.plot((per_cpu_min_ts[cpu] - min_ts, max_ts - min_ts), (cpu, cpu), 'k', alpha=0.2)
+    cpu_lines.append([(0, cpu), (per_cpu_min_ts[cpu] - min_ts, cpu)])
 
-np.random.seed(0)
+ax.add_collection(collect.LineCollection(cpu_lines,
+        colors=[(0,0,0,0.2)]*len(data)))
+
+print("done plotting cpus %s" % datetime.datetime.now())
 
 # Plot processes/tasks
 
+task_patches = []
+
+np.random.seed(0)
 task_colors = {}
 
 def get_task_color(pid):
@@ -506,10 +518,16 @@ for cpu, tasks in per_cpu_tasks.items():
     for ev, end_ts in tasks:
         #print("%d %f + %f (%f)" % (ev[5], ev[2] - min_ts, end_ts - ev[2], end_ts))
         rect = patches.Rectangle((ev[2] - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev[2],
-                TASK_HEIGHT, color=get_task_color(ev[5]), fill=True, alpha=0.3)
-        ax.add_patch(rect)
+                TASK_HEIGHT, color=get_task_color(ev[5]), fill=True, alpha=1)
+        task_patches.append(rect)
+
+ax.add_collection(collect.PatchCollection(task_patches, match_original=True))
+
+print("done plotting tasks %s" % datetime.datetime.now())
 
 # Plot the actual events
+
+events_patches = []
 
 label_colors = {}
 
@@ -523,21 +541,39 @@ def get_label_color(label):
 plot_map = {}
 
 for cpu, cpu_data in data.items():
+    # Plot everything except softirqs, since they need to be plotted on top.
     for ev in cpu_data:
         if ev[0] == 'interval':
             # intervals (matched events)
-            rect = patches.Rectangle((ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2],
-                    INTERVAL_HEIGHT, color=get_label_color(ev[1]), fill=True, alpha=0.5, picker=True)
+            if ev[1] == 'SOFTIRQ':
+                continue
+            rect = patches.Rectangle(
+                    (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT, 
+                    color=get_label_color(ev[1]), fill=True, alpha=1, picker=True)
             plot_map[rect] = (cpu, ev)
-            ax.add_patch(rect)
+            events_patches.append(rect)
         else:
             # point event
             sc = ax.scatter(ev[2] - min_ts, cpu, s=50,
-                    c=get_label_color(ev[0]),
+                    color=get_label_color(ev[0]),
                     marker=START_MARKER if ev[1] else END_MARKER,
                     zorder=9999, picker=True)
-
             plot_map[sc] = (cpu, ev)
+
+    for ev in cpu_data:
+        if ev[0] == 'interval':
+            if ev[1] == 'SOFTIRQ':
+                rect = patches.Rectangle(
+                        (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT, 
+                        color=get_label_color(ev[1]), fill=True, alpha=1, picker=True)
+                plot_map[rect] = (cpu, ev)
+                events_patches.append(rect)
+
+ax.add_collection(
+        collect.PatchCollection(events_patches, match_original=True, picker=True,
+            zorder=3))
+
+print("done plotting events %s" % datetime.datetime.now())
 
 # Custom legend
 legend_elements = [
@@ -555,6 +591,8 @@ for label, color in label_colors.items():
 ax.legend(handles=legend_elements, bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
                 mode="expand", borderaxespad=0, ncol=3)
 
+print("done plotting making legend %s" % datetime.datetime.now())
+
 # Annotations on hover
 annot = ax.annotate("", xy=(0,0), xytext=(20,20),textcoords="offset points",
                     bbox=dict(boxstyle="round", fc="w"),
@@ -562,7 +600,12 @@ annot = ax.annotate("", xy=(0,0), xytext=(20,20),textcoords="offset points",
 annot.set_visible(False)
 
 def onpick(event):
-    cpu, trace_ev = plot_map[event.artist]
+    artist = event.artist
+
+    if isinstance(artist, collect.PatchCollection):
+        artist = events_patches[event.ind[0]]
+
+    cpu, trace_ev = plot_map[artist]
 
     annot.xy = (trace_ev[2] - min_ts, cpu)
 
@@ -589,10 +632,13 @@ def onpick(event):
 
 fig.canvas.mpl_connect("pick_event", onpick)
 
-# X axis label
+# Axes
 plt.xlabel("Time Elapsed (usec)")
 
-# Remove components for a cleaner look
-plt.setp((ax.get_yticklabels() + ax.get_yticklines() +
+plt.yticks([c for c in data], ["CPU%d" % c for c in data])
+
+plt.setp(( ax.get_yticklines() +
           list(ax.spines.values())), visible=False)
+
+# Plot
 plt.show()
