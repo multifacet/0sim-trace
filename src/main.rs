@@ -57,6 +57,13 @@ fn process_snapshot(snap: Snapshot, prefix: &str, i: usize) {
     let f = File::create(&format!("{}{:05}", prefix, i)).unwrap();
     let mut buf = BufWriter::new(f);
     for (i, cpu) in snap.cpus().into_iter().enumerate() {
+        writeln!(
+            buf,
+            "{} {:<15} {:5} ts: {}, id: {}, pid: {}, extra: {}",
+            i, "RECORD", "START", 0, 0, 0, 0
+        )
+        .unwrap();
+
         for ev in cpu {
             let name = match ev.event {
                 ZerosimTraceEvent::TaskSwitch { .. } => "TASK_SWITCH",
@@ -119,5 +126,12 @@ fn process_snapshot(snap: Snapshot, prefix: &str, i: usize) {
             )
             .unwrap();
         }
+
+        writeln!(
+            buf,
+            "{} {:<15} {:5} ts: {}, id: {}, pid: {}, extra: {}",
+            i, "RECORD", "", 0, 0, 0, 0
+        )
+        .unwrap();
     }
 }
