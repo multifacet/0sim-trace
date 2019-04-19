@@ -2,6 +2,9 @@
 
 mod tracing;
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
 use clap::clap_app;
 
 use tracing::{Snapshot, ZerosimTracer};
@@ -17,6 +20,8 @@ fn main() -> Result<(), failure::Error> {
          "The interval to take snapshots at in milliseconds.")
         (@arg BUFFER_SIZE: +required {is_usize}
          "The number of events to buffer on each CPU per snapshot.")
+        (@arg OUTPUT_PREFIX: +required
+         "The filename prefix of the output files.")
     }
     .get_matches();
 
@@ -30,24 +35,30 @@ fn main() -> Result<(), failure::Error> {
         .unwrap()
         .parse::<usize>()
         .unwrap();
+    let prefix = matches.value_of("OUTPUT_PREFIX").unwrap();
 
     let mut zs = ZerosimTracer::init(buffer_size)?;
 
-    loop {
+    for i in 0.. {
         let pending = zs.begin(None)?;
 
         std::thread::sleep(std::time::Duration::from_millis(interval));
 
         let snap = pending.snapshot();
 
-        let _ = std::thread::spawn(move || process_snapshot(snap));
+        let prefix = prefix.to_owned();
+        let _ = std::thread::spawn(move || process_snapshot(snap, &prefix, i));
     }
+
+    Ok(())
 }
 
-fn process_snapshot(snap: Snapshot) {
+fn process_snapshot(snap: Snapshot, prefix: &str, i: usize) {
+    let f = File::create(&format!("{}{}", prefix, i)).unwrap();
+    let mut buf = BufWriter::new(f);
     for (i, cpu) in snap.cpus().into_iter().enumerate() {
         for ev in cpu {
-            println!("{} {:?}", i, ev);
+            writeln!(buf, "{} {:?}", i, ev).unwrap();
         }
     }
 }
