@@ -159,7 +159,7 @@ impl Trace {
                     (ty, false) if ty == sys::ZEROSIM_TRACE_SOFTIRQ => {
                         ZerosimTraceEvent::SoftIrqEnd
                     }
-                    _ => unreachable!(),
+                    _ => panic!("Unexpected trace: {:?}", raw),
                 }
             },
         }
