@@ -97,11 +97,11 @@ impl Snapshot {
 #[derive(Debug, Clone, Copy)]
 pub struct Trace {
     /// What kind of event was traced.
-    event: ZerosimTraceEvent,
+    pub event: ZerosimTraceEvent,
     /// The `rdtsc` timestamp of the event.
-    timestamp: u64,
+    pub timestamp: u64,
     /// The process ID of the process that was running when the event happened.
-    pid: u32,
+    pub pid: u32,
 }
 
 impl Trace {

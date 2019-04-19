@@ -7,7 +7,7 @@ use std::io::{BufWriter, Write};
 
 use clap::clap_app;
 
-use tracing::{Snapshot, ZerosimTracer};
+use tracing::{Snapshot, ZerosimTraceEvent, ZerosimTracer};
 
 fn is_usize(s: String) -> Result<(), String> {
     s.parse::<usize>().map(|_| ()).map_err(|e| format!("{}", e))
@@ -58,7 +58,66 @@ fn process_snapshot(snap: Snapshot, prefix: &str, i: usize) {
     let mut buf = BufWriter::new(f);
     for (i, cpu) in snap.cpus().into_iter().enumerate() {
         for ev in cpu {
-            writeln!(buf, "{} {:?}", i, ev).unwrap();
+            let name = match ev.event {
+                ZerosimTraceEvent::TaskSwitch { .. } => "TASK_SWITCH",
+                ZerosimTraceEvent::SystemCallStart { .. }
+                | ZerosimTraceEvent::SystemCallEnd { .. } => "SYSCALL",
+                ZerosimTraceEvent::IrqStart { .. } | ZerosimTraceEvent::IrqEnd { .. } => {
+                    "INTERRUPT"
+                }
+                ZerosimTraceEvent::SoftIrqStart { .. } | ZerosimTraceEvent::SoftIrqEnd { .. } => {
+                    "SOFTIRQ"
+                }
+                ZerosimTraceEvent::ExceptionStart { .. }
+                | ZerosimTraceEvent::ExceptionEnd { .. } => "FAULT",
+                ZerosimTraceEvent::Unknown { .. } => "??",
+            };
+
+            let start = match ev.event {
+                ZerosimTraceEvent::SystemCallStart { .. }
+                | ZerosimTraceEvent::IrqStart { .. }
+                | ZerosimTraceEvent::ExceptionStart { .. }
+                | ZerosimTraceEvent::SoftIrqStart => "START",
+
+                ZerosimTraceEvent::TaskSwitch { .. }
+                | ZerosimTraceEvent::SystemCallEnd { .. }
+                | ZerosimTraceEvent::IrqEnd { .. }
+                | ZerosimTraceEvent::ExceptionEnd { .. }
+                | ZerosimTraceEvent::SoftIrqEnd
+                | ZerosimTraceEvent::Unknown { .. } => "",
+            };
+
+            let id = match ev.event {
+                ZerosimTraceEvent::TaskSwitch { current_pid, .. } => current_pid,
+                ZerosimTraceEvent::SystemCallStart { num }
+                | ZerosimTraceEvent::SystemCallEnd { num, .. } => num,
+                ZerosimTraceEvent::IrqStart { num } | ZerosimTraceEvent::IrqEnd { num } => num,
+                ZerosimTraceEvent::SoftIrqStart { .. } | ZerosimTraceEvent::SoftIrqEnd { .. } => 0,
+                ZerosimTraceEvent::ExceptionStart { error }
+                | ZerosimTraceEvent::ExceptionEnd { error, .. } => error,
+                ZerosimTraceEvent::Unknown { id, .. } => id as usize,
+            };
+
+            let extra = match ev.event {
+                ZerosimTraceEvent::TaskSwitch { prev_pid, .. } => prev_pid,
+                ZerosimTraceEvent::SystemCallEnd { num, .. } => num,
+                ZerosimTraceEvent::ExceptionEnd { ip, .. } => ip as usize,
+                ZerosimTraceEvent::Unknown { extra, .. } => extra as usize,
+
+                ZerosimTraceEvent::ExceptionStart { .. }
+                | ZerosimTraceEvent::SystemCallStart { .. }
+                | ZerosimTraceEvent::SoftIrqStart { .. }
+                | ZerosimTraceEvent::SoftIrqEnd { .. }
+                | ZerosimTraceEvent::IrqStart { .. }
+                | ZerosimTraceEvent::IrqEnd { .. } => 0,
+            };
+
+            writeln!(
+                buf,
+                "{} {:<15} {:5} ts: {}, id: {}, pid: {}, extra: {}",
+                i, name, start, ev.timestamp, id, ev.pid, extra
+            )
+            .unwrap();
         }
     }
 }
