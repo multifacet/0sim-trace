@@ -159,7 +159,11 @@ impl Trace {
                     (ty, false) if ty == sys::ZEROSIM_TRACE_SOFTIRQ => {
                         ZerosimTraceEvent::SoftIrqEnd
                     }
-                    _ => panic!("Unexpected trace: {:?}", raw),
+                    _ => ZerosimTraceEvent::Unknown {
+                        id: raw.id,
+                        flags: raw.flags,
+                        extra: raw.extra,
+                    },
                 }
             },
         }
@@ -225,6 +229,9 @@ pub enum ZerosimTraceEvent {
 
     /// The end of softirq processing.
     SoftIrqEnd,
+
+    /// Any other trace
+    Unknown { id: u32, flags: u32, extra: u32 },
 }
 
 /// The raw interface.
