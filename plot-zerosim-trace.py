@@ -12,7 +12,7 @@ import datetime
 
 from sys import argv
 
-RE=r'''(\d+) { ([\w?_]+)\s+(\w+)?\s+ts: (\d+), flags:\s+(\d+), id: (\d+), pid: (\d+), extra: (\d+) }'''
+RE=r'''(\d+) ([\w?_]+)\s+(\w+)?\s+ts: (\d+), id: (\d+), pid: (\d+), extra: (\d+)'''
 
 FREQ=3.5E3
 
@@ -387,6 +387,24 @@ LINUX_4_4_SYSCALLS_64_BIT = {
 
 filename = argv[1]
 
+class Event:
+    def __init__(self, name, is_start, ts, eid, pid, extra):
+        self.name = name
+        self.is_start = is_start
+        self.ts = ts
+        self.eid = eid
+        self.pid = pid
+        self.extra = extra
+
+class IntervalEvent:
+    def __init__(self, name, start_ts, end_ts, eid, pid, extra):
+        self.name = name
+        self.start_ts = start_ts
+        self.end_ts = end_ts
+        self.eid = eid
+        self.pid = pid
+        self.extra = extra
+
 data = {}
 min_ts = None
 max_ts = None
@@ -410,10 +428,9 @@ with open(filename, 'r') as f:
         event = m.group(2)
         start = m.group(3) is not None
         ts = int(m.group(4)) / FREQ # usec
-        flags = int(m.group(5), 2)  # binary
-        ev_id = int(m.group(6))
-        pid = int(m.group(7))
-        extra = int(m.group(8))
+        eid = int(m.group(5))
+        pid = int(m.group(6))
+        extra = int(m.group(7))
 
         if core not in data:
             data[core] = []
@@ -421,10 +438,10 @@ with open(filename, 'r') as f:
             per_cpu_tasks[core] = []
             prev_task[core] = None
 
-        if start == 0 and ts == 0 and flags == 0 and ev_id == 0:
+        if start == 0 and ts == 0 and eid == 0:
             continue
 
-        ev = (event, start, ts, flags, ev_id, pid, extra)
+        ev = Event(event, start, ts, eid, pid, extra)
 
         data[core].append(ev)
 
@@ -438,8 +455,8 @@ with open(filename, 'r') as f:
 
         if prev_task[core] is None:
             prev_task[core] = ev
-        elif prev_task[core][5] != ev[5]:
-            per_cpu_tasks[core].append((prev_task[core], ev[2]))
+        elif prev_task[core].pid != ev.pid:
+            per_cpu_tasks[core].append((prev_task[core], ev.ts))
             prev_task[core] = ev
 
     for cpu, task in prev_task.items():
@@ -455,7 +472,7 @@ for cpu, cpu_data in data.items():
 
     for ev in cpu_data:
         # handle open events
-        if ev[1]:
+        if ev.is_start:
             pending.append(ev)
             continue
 
@@ -464,11 +481,11 @@ for cpu, cpu_data in data.items():
             # if the event matches something on the stack, match it. Otherwise,
             # push a singleton event.
             if len(pending) > 0 \
-                    and ev[0] == pending[-1][0] \
-                    and ev[4] == pending[-1][4] \
-                    and ev[5] == pending[-1][5]:
+                    and ev.name == pending[-1].name \
+                    and ev.eid == pending[-1].eid \
+                    and ev.pid == pending[-1].pid:
                 start = pending.pop()
-                matched.append(("interval", ev[0], start[2], ev[2], ev[3], ev[4], ev[5], ev[6]))
+                matched.append(IntervalEvent(ev.name, start.ts, ev.ts, ev.eid, ev.pid, ev.extra))
             else:
                 matched.append(ev)
 
@@ -513,10 +530,9 @@ def get_task_color(pid):
 
 for cpu, tasks in per_cpu_tasks.items():
     for ev, end_ts in tasks:
-        #print("%d %f + %f (%f)" % (ev[5], ev[2] - min_ts, end_ts - ev[2], end_ts))
         rect = patches.Rectangle(
-                (ev[2] - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev[2], TASK_HEIGHT, 
-                facecolor=get_task_color(ev[5]), alpha=1)
+                (ev.ts - min_ts, cpu - TASK_HEIGHT/2), end_ts - ev.ts, TASK_HEIGHT,
+                facecolor=get_task_color(ev.pid), alpha=1)
         task_patches.append(rect)
 
 ax.add_collection(collect.PatchCollection(
@@ -544,17 +560,16 @@ scattered_events = []
 
 for cpu, cpu_data in data.items():
     for ev in cpu_data:
-        if ev[0] == 'interval':
-            # intervals (matched events)
+        if isinstance(ev, IntervalEvent):
             rect = patches.Rectangle(
-                    (ev[2] - min_ts, cpu - INTERVAL_HEIGHT/2), ev[3] - ev[2], INTERVAL_HEIGHT,
-                    color=get_label_color(ev[1]), fill=True, alpha=1, picker=True)
+                    (ev.start_ts - min_ts, cpu - INTERVAL_HEIGHT/2),
+                    ev.end_ts - ev.start_ts, INTERVAL_HEIGHT,
+                    color=get_label_color(ev.name), fill=True, alpha=1, picker=True)
             plot_map[rect] = (cpu, ev)
             events_patches.append(rect)
         else:
-            # point event
-            scattered.append((ev[2] - min_ts, cpu, get_label_color(ev[0])))
-            scattered_events.append((cpu,ev))
+            scattered.append((ev.ts - min_ts, cpu, get_label_color(ev.name)))
+            scattered_events.append((cpu, ev))
 
 # draw short event last so they are on top.
 # zorder doesn't work for collections of patches.
@@ -594,29 +609,37 @@ def onpick(event):
     cpu, trace_ev = None, None
 
     if isinstance(event.artist, collect.PatchCollection):
-        cpu, trace_ev = plot_map[events_patches[event.ind[0]]]
+        # Choose the shortest event, since it is likely the one that was clicked.
+        cpu, trace_ev = None, None
+        for i in event.ind:
+            c, tev = plot_map[events_patches[i]]
+            if cpu is None or (tev.end_ts - tev.start_ts) < (trace_ev.end_ts - trace_ev.start_ts):
+                cpu, trace_ev = c, tev
+
     elif isinstance(event.artist, collect.PathCollection):
         cpu, trace_ev = scattered_events[event.ind[0]]
     else:
         print("Unknown artist type: %s" % event.artist)
         return
 
-    annot.xy = (trace_ev[2] - min_ts, cpu)
-
+    ts = None
     text = ""
 
-    if trace_ev[0] == "interval":
+    if isinstance(trace_ev, IntervalEvent):
+        ts = trace_ev.start_ts
         text = "{} id: {}{}\nduration: {:,.3f} us\npid: {}\nextra: {}".format(
-                trace_ev[1], trace_ev[5],
-                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev[5]]) if trace_ev[1] == "SYSCALL" else "",
-                trace_ev[3] - trace_ev[2],
-                trace_ev[6], trace_ev[7])
+                trace_ev.name, trace_ev.eid,
+                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev.eid]) if trace_ev.name == "SYSCALL" else "",
+                trace_ev.end_ts - trace_ev.start_ts,
+                trace_ev.pid, trace_ev.extra)
     else:
+        ts = trace_ev.ts
         text = "{} id: {}{}\npid: {}\nextra: {}".format(
-                trace_ev[0], trace_ev[4],
-                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev[5]]) if trace_ev[1] == "SYSCALL" else "",
-                trace_ev[5], trace_ev[6])
+                trace_ev.name, trace_ev.eid,
+                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev.eid]) if trace_ev.name == "SYSCALL" else "",
+                trace_ev.pid, trace_ev.extra)
 
+    annot.xy = (ts - min_ts, cpu)
     annot.set_text(text)
     annot.get_bbox_patch().set_facecolor("grey")
     annot.get_bbox_patch().set_alpha(0.6)
