@@ -54,7 +54,7 @@ fn main() -> Result<(), failure::Error> {
 }
 
 fn process_snapshot(snap: Snapshot, prefix: &str, i: usize) {
-    let f = File::create(&format!("{}{}", prefix, i)).unwrap();
+    let f = File::create(&format!("{}{:05}", prefix, i)).unwrap();
     let mut buf = BufWriter::new(f);
     for (i, cpu) in snap.cpus().into_iter().enumerate() {
         for ev in cpu {
