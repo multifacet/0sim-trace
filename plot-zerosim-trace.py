@@ -19,6 +19,9 @@ FREQ=3.5E3
 INTERVAL_HEIGHT=0.15
 TASK_HEIGHT=INTERVAL_HEIGHT*2
 
+# The marker event just tells us when we started and stopped recording
+MARKER = "RECORD"
+
 LINUX_4_4_SYSCALLS_64_BIT = {
         0: "read",
         1: "write",
@@ -396,6 +399,10 @@ class Event:
         self.pid = pid
         self.extra = extra
 
+    def __repr__(self):
+        return "<{} {} {} {} {} {}>".format(self.name, self.is_start,
+                self.ts, self.eid, self.pid, self.extra)
+
 class IntervalEvent:
     def __init__(self, name, start_ts, end_ts, eid, pid, extra):
         self.name = name
@@ -404,6 +411,10 @@ class IntervalEvent:
         self.eid = eid
         self.pid = pid
         self.extra = extra
+
+    def __repr__(self):
+        return "[{} {} {} {} {} {}]".format(self.name, self.start_ts,
+                self.end_ts, self.eid, self.pid, self.extra)
 
 data = {}
 min_ts = None
@@ -415,8 +426,12 @@ per_cpu_min_ts = {}
 # interval for a new task.
 per_cpu_tasks = {}
 
+# Keep track of time that is not measured.
+per_cpu_unmeasured = {}
+
 with open(filename, 'r') as f:
     prev_task = {}
+    unmeasured_start = {}
 
     for line in f.readlines():
         m = re.match(RE, line)
@@ -436,14 +451,30 @@ with open(filename, 'r') as f:
             data[core] = []
             per_cpu_min_ts[core] = None
             per_cpu_tasks[core] = []
+            per_cpu_unmeasured[core] = []
             prev_task[core] = None
+            unmeasured_start[core] = None
 
-        if start == 0 and ts == 0 and eid == 0:
+        if not start and ts == 0 and eid == 0 and event != MARKER:
+            print("skipping %s" % line)
             continue
 
         ev = Event(event, start, ts, eid, pid, extra)
 
         data[core].append(ev)
+
+        # Handle the special marker events
+        if ev.name == MARKER and ev.is_start:
+            continue
+        elif ev.name == MARKER:
+            if prev_task[core] is not None:
+                per_cpu_tasks[core].append((prev_task[core], data[core][-2].ts))
+                prev_task[core] = None
+            unmeasured_start[core] = data[core][-2].ts
+            continue
+        elif unmeasured_start[core] is not None:
+            per_cpu_unmeasured[core].append((unmeasured_start[core], ev.ts))
+            unmeasured_start[core] = None
 
         if min_ts is None or ts < min_ts:
             min_ts = ts
@@ -463,7 +494,7 @@ with open(filename, 'r') as f:
         if task is not None:
             per_cpu_tasks[cpu].append((task, max_ts))
 
-# Process to get matching events
+# Process to get matching events and start-stop events
 for cpu, cpu_data in data.items():
     matched = []
 
@@ -471,6 +502,15 @@ for cpu, cpu_data in data.items():
     pending = []
 
     for ev in cpu_data:
+        # handle the special marker events
+        if ev.name == MARKER and ev.is_start:
+            continue
+        elif ev.name == MARKER:
+            # recording ended... reset everything
+            matched.extend(pending)
+            pending = []
+            continue
+
         # handle open events
         if ev.is_start:
             pending.append(ev)
@@ -499,7 +539,7 @@ print("done processing %s" % datetime.datetime.now())
 matplotlib.rcParams['agg.path.chunksize'] = 100000
 fig, ax = plt.subplots(figsize=(8, 5))
 
-# Create a line for each CPU
+# Plot all the unmeasured parts
 
 cpu_lines = []
 
@@ -508,11 +548,16 @@ for cpu in data:
         per_cpu_min_ts[cpu] = max_ts
 
     cpu_lines.append([(0, cpu), (per_cpu_min_ts[cpu] - min_ts, cpu)])
+    cpu_lines.append([(per_cpu_unmeasured[cpu][-1][0] - min_ts, cpu), (max_ts - min_ts, cpu)])
+
+for cpu, regions in per_cpu_unmeasured.items():
+    for start, end in regions:
+        cpu_lines.append([(start - min_ts, cpu), (end - min_ts, cpu)])
 
 ax.add_collection(collect.LineCollection(cpu_lines,
         colors=[(0,0,0,0.2)]*len(data)))
 
-print("done plotting cpus %s" % datetime.datetime.now())
+print("done plotting unmeasured time %s" % datetime.datetime.now())
 
 # Plot processes/tasks
 
