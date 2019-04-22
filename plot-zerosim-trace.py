@@ -429,6 +429,9 @@ per_cpu_tasks = {}
 # Keep track of time that is not measured.
 per_cpu_unmeasured = {}
 
+# For debugging
+skipped = []
+
 with open(filename, 'r') as f:
     prev_task = {}
     unmeasured_start = {}
@@ -456,7 +459,7 @@ with open(filename, 'r') as f:
             unmeasured_start[core] = None
 
         if not start and ts == 0 and eid == 0 and event != MARKER:
-            print("skipping %s" % line)
+            skipped.append((core, event))
             continue
 
         ev = Event(event, start, ts, eid, pid, extra)
@@ -470,7 +473,12 @@ with open(filename, 'r') as f:
             if prev_task[core] is not None:
                 per_cpu_tasks[core].append((prev_task[core], data[core][-2].ts))
                 prev_task[core] = None
-            unmeasured_start[core] = data[core][-2].ts
+
+            # The last real event
+            for ev in data[core][::-1]:
+                if ev.name != MARKER:
+                    unmeasured_start[core] = ev.ts
+                    break
             continue
         elif unmeasured_start[core] is not None:
             per_cpu_unmeasured[core].append((unmeasured_start[core], ev.ts))
@@ -493,6 +501,8 @@ with open(filename, 'r') as f:
     for cpu, task in prev_task.items():
         if task is not None:
             per_cpu_tasks[cpu].append((task, max_ts))
+
+#print(skipped)
 
 # Process to get matching events and start-stop events
 for cpu, cpu_data in data.items():
