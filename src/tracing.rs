@@ -15,6 +15,12 @@ enum ZerosimTracingError {
 
     #[fail(display = "zerosim trace is already running.")]
     AlreadyRunning,
+
+    #[fail(display = "a snapshot was requiested, but tracing was never begun.")]
+    NotTracing,
+
+    #[fail(display = "zerosim trace needs a larger buffer for the snapshot.")]
+    BufferTooSmall,
 }
 
 /// A handle on the tracer.
@@ -59,15 +65,15 @@ pub struct PendingSnapshot {
 
 impl PendingSnapshot {
     /// Capture a snapshot and return it.
-    pub fn snapshot(mut self) -> Snapshot {
+    pub fn snapshot(mut self) -> Result<Snapshot, failure::Error> {
         self.captured = true;
-        Snapshot {
-            buffer: unsafe { sys::snapshot(self.size) }
+        Ok(Snapshot {
+            buffer: unsafe { sys::snapshot(self.size) }?
                 .drain(..)
                 .map(Trace::from_raw)
                 .collect(),
             size: self.size,
-        }
+        })
     }
 }
 
@@ -302,7 +308,7 @@ mod sys {
             0 => Ok(()),
             e if e == (-libc::EAGAIN).into() => Err(ZerosimTracingError::SizeFailedTemporarily)?,
             e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
-            _ => unreachable!(),
+            e => panic!("unexpected error code: {}", e),
         }
     }
 
@@ -313,26 +319,30 @@ mod sys {
             0 => Ok(()),
             e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
             e if e == (-libc::EINPROGRESS).into() => Err(ZerosimTracingError::AlreadyRunning)?,
-            _ => unreachable!(),
+            e => panic!("unexpected error code: {}", e),
         }
     }
 
-    pub unsafe fn snapshot(size: usize) -> Vec<Trace> {
+    pub unsafe fn snapshot(size: usize) -> Result<Vec<Trace>, failure::Error> {
         let mut buffer = Vec::with_capacity(size * num_cpus::get());
 
         let ret = {
             let ptr = buffer.as_mut_ptr();
-            let cap = buffer.capacity();
+            let cap = buffer.capacity() * std::mem::size_of::<Trace>();
 
             syscall(SNAPSHOT_SYSCALL_NR, ptr, cap)
         };
-        if ret != 0 {
-            libc::perror(std::ptr::null_mut());
-            unreachable!();
+
+        match ret {
+            0 => {
+                buffer.set_len(buffer.capacity());
+
+                Ok(buffer)
+            }
+            e if e == (-libc::EBADE).into() => Err(ZerosimTracingError::NotTracing)?,
+            e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
+            e if e == (-libc::EINVAL).into() => Err(ZerosimTracingError::BufferTooSmall)?,
+            e => panic!("unexpected error code: {}", e),
         }
-
-        buffer.set_len(buffer.capacity());
-
-        buffer
     }
 }

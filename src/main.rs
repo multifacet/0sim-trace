@@ -44,7 +44,7 @@ fn main() -> Result<(), failure::Error> {
 
         std::thread::sleep(std::time::Duration::from_millis(interval));
 
-        let snap = pending.snapshot();
+        let snap = pending.snapshot()?;
 
         let prefix = prefix.to_owned();
         let _ = std::thread::spawn(move || process_snapshot(snap, &prefix, i));
