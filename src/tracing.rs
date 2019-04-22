@@ -244,6 +244,10 @@ pub enum ZerosimTraceEvent {
 mod sys {
     use libc::syscall;
 
+    use lazy_static::lazy_static;
+
+    use regex::Regex;
+
     use super::ZerosimTracingError;
 
     pub const BEGIN_SYSCALL_NR: i64 = 546;
@@ -334,8 +338,40 @@ mod sys {
         }
     }
 
+    fn get_num_cpus() -> Result<usize, failure::Error> {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r#"CPU\(s\):\s+(\d+)"#).unwrap();
+        }
+
+        static mut CACHED: Option<usize> = None;
+
+        if let Some(cached) = unsafe { CACHED } {
+            return Ok(cached);
+        }
+
+        let out = std::process::Command::new("lscpu").output()?;
+        let out = std::str::from_utf8(&out.stdout).unwrap();
+
+        let cpus = RE
+            .captures_iter(out)
+            .next()
+            .unwrap()
+            .get(1)
+            .unwrap()
+            .as_str()
+            .to_owned()
+            .parse::<usize>()
+            .unwrap();
+
+        unsafe {
+            CACHED = Some(cpus);
+        }
+
+        Ok(cpus)
+    }
+
     pub unsafe fn snapshot(size: usize) -> Result<Vec<Trace>, failure::Error> {
-        let mut buffer = Vec::with_capacity(size * num_cpus::get());
+        let mut buffer = Vec::with_capacity(size * get_num_cpus()?);
 
         let ret = {
             let ptr = buffer.as_mut_ptr();
