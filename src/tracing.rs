@@ -304,22 +304,35 @@ mod sys {
     pub fn size(size: usize) -> Result<(), failure::Error> {
         let ret = unsafe { syscall(SIZE_SYSCALL_NR, size) };
 
-        match ret {
-            0 => Ok(()),
-            e if e == (-libc::EAGAIN).into() => Err(ZerosimTracingError::SizeFailedTemporarily)?,
-            e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
-            e => panic!("unexpected error code: {}", e),
+        if ret == 0 {
+            Ok(())
+        } else {
+            match unsafe { *libc::__errno_location() } {
+                0 => Ok(()),
+                e if e == (-libc::EAGAIN).into() => {
+                    Err(ZerosimTracingError::SizeFailedTemporarily)?
+                }
+                e if e == (-libc::ENOMEM).into() => {
+                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
+                }
+                e => panic!("unexpected error code: {}", e),
+            }
         }
     }
 
     pub fn begin() -> Result<(), failure::Error> {
         let ret = unsafe { syscall(BEGIN_SYSCALL_NR) };
 
-        match ret {
-            0 => Ok(()),
-            e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
-            e if e == (-libc::EINPROGRESS).into() => Err(ZerosimTracingError::AlreadyRunning)?,
-            e => panic!("unexpected error code: {}", e),
+        if ret == 0 {
+            Ok(())
+        } else {
+            match unsafe { *libc::__errno_location() } {
+                e if e == (-libc::ENOMEM).into() => {
+                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
+                }
+                e if e == (-libc::EINPROGRESS).into() => Err(ZerosimTracingError::AlreadyRunning)?,
+                e => panic!("unexpected error code: {}", e),
+            }
         }
     }
 
@@ -333,16 +346,19 @@ mod sys {
             syscall(SNAPSHOT_SYSCALL_NR, ptr, cap)
         };
 
-        match ret {
-            0 => {
-                buffer.set_len(buffer.capacity());
+        if ret == 0 {
+            buffer.set_len(buffer.capacity());
 
-                Ok(buffer)
+            Ok(buffer)
+        } else {
+            match *libc::__errno_location() {
+                e if e == (-libc::EBADE).into() => Err(ZerosimTracingError::NotTracing)?,
+                e if e == (-libc::ENOMEM).into() => {
+                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
+                }
+                e if e == (-libc::EINVAL).into() => Err(ZerosimTracingError::BufferTooSmall)?,
+                e => panic!("unexpected error code: {}", e),
             }
-            e if e == (-libc::EBADE).into() => Err(ZerosimTracingError::NotTracing)?,
-            e if e == (-libc::ENOMEM).into() => Err(ZerosimTracingError::KernelBuffersUnallocated)?,
-            e if e == (-libc::EINVAL).into() => Err(ZerosimTracingError::BufferTooSmall)?,
-            e => panic!("unexpected error code: {}", e),
         }
     }
 }
