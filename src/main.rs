@@ -22,24 +22,38 @@ fn main() -> Result<(), failure::Error> {
          "The number of events to buffer on each CPU per snapshot.")
         (@arg OUTPUT_PREFIX: +required
          "The filename prefix of the output files.")
+        (@arg TOTAL: +takes_value {is_usize} -t --total
+         "The total amount of time (in msecs) to measure; if omitted, measure until killed by ^C.")
     }
     .get_matches();
 
     let interval = matches
         .value_of("INTERVAL")
         .unwrap()
-        .parse::<usize>()
-        .unwrap() as u64;
+        .parse::<u64>()
+        .unwrap();
     let buffer_size = matches
         .value_of("BUFFER_SIZE")
         .unwrap()
         .parse::<usize>()
         .unwrap();
     let prefix = matches.value_of("OUTPUT_PREFIX").unwrap();
+    let total = matches
+        .value_of("TOTAL")
+        .map(|t| t.parse::<usize>().unwrap());
 
     let mut zs = ZerosimTracer::init(buffer_size)?;
 
-    for i in 0.. {
+    let done = |i| {
+        if let Some(total) = total {
+            i * (interval as usize) < total
+        } else {
+            false
+        }
+    };
+
+    let mut i = 0;
+    while !done(i) {
         let pending = zs.begin(None)?;
 
         std::thread::sleep(std::time::Duration::from_millis(interval));
@@ -48,6 +62,8 @@ fn main() -> Result<(), failure::Error> {
 
         let prefix = prefix.to_owned();
         let _ = std::thread::spawn(move || process_snapshot(snap, &prefix, i));
+
+        i += 1;
     }
 
     Ok(())
