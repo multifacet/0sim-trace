@@ -4,6 +4,8 @@ use failure::Fail;
 
 use itertools::Itertools;
 
+use serde_derive::{Deserialize, Serialize};
+
 /// Possible errors when using the zerosim tracing API.
 #[derive(Debug, Fail)]
 enum ZerosimTracingError {
@@ -86,7 +88,7 @@ impl Drop for PendingSnapshot {
 }
 
 /// A snapshot produced by zerosim trace.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     size: usize,
     buffer: Vec<Trace>,
@@ -100,7 +102,7 @@ impl Snapshot {
 }
 
 /// A single event in a snapshot.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Trace {
     /// What kind of event was traced.
     pub event: ZerosimTraceEvent,
@@ -177,7 +179,7 @@ impl Trace {
 }
 
 /// Represents different types of events that could be traced.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ZerosimTraceEvent {
     TaskSwitch {
         /// The pid of the task that was switched _to_.
