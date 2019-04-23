@@ -46,7 +46,7 @@ fn main() -> Result<(), failure::Error> {
 
     let done = |i| {
         if let Some(total) = total {
-            i * (interval as usize) < total
+            i * (interval as usize) > total
         } else {
             false
         }
