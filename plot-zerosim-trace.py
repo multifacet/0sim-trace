@@ -436,11 +436,12 @@ with open(filename, 'r') as f:
     prev_task = {}
     unmeasured_start = {}
 
-    for line in f.readlines():
+    for i, line in enumerate(f.readlines()):
         m = re.match(RE, line)
 
         if m is None:
-            print("No match for line: %s" % line)
+            print("No match for line %d: %s" % (i, line))
+            continue
 
         core = int(m.group(1))
         event = m.group(2)
