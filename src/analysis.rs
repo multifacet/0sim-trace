@@ -1,5 +1,7 @@
 //! Various functionalities for analyzing a trace snapshot.
 
+mod stats;
+
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -17,6 +19,9 @@ pub fn cli_args() -> clap::App<'static, 'static> {
             (@arg OUTPUT_FILE: +required
              "The name of the file to dump to.")
         )
+        (@subcommand stats =>
+            (about: "Compute per-cpu stats from the trace snapshot.")
+        )
     })
     .setting(clap::AppSettings::SubcommandRequired)
     .setting(clap::AppSettings::DisableVersion)
@@ -27,6 +32,7 @@ pub fn analyze(matches: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
 
     match matches.subcommand() {
         ("dump", Some(sub_m)) => dump(snap, sub_m),
+        ("stats", Some(sub_m)) => stats::stats(snap, sub_m),
 
         _ => unreachable!(),
     }
