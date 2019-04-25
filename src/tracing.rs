@@ -1,5 +1,10 @@
 //! Safe wrapper around the tracing API.
 
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use failure::Fail;
 
 use itertools::Itertools;
@@ -8,7 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 
 /// Possible errors when using the zerosim tracing API.
 #[derive(Debug, Fail)]
-enum ZerosimTracingError {
+enum ZerosimTraceError {
     #[fail(display = "zerosim trace size() failed. Please retry.")]
     SizeFailedTemporarily,
 
@@ -242,6 +247,58 @@ pub enum ZerosimTraceEvent {
     Unknown { id: u32, flags: u32, extra: u32 },
 }
 
+impl Hash for ZerosimTraceEvent {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            ZerosimTraceEvent::TaskSwitch { current_pid, .. } => {
+                0.hash(state); // identifies this as a task switch
+                current_pid.hash(state);
+            }
+            ZerosimTraceEvent::SystemCallStart { num, .. }
+            | ZerosimTraceEvent::SystemCallEnd { num, .. } => {
+                1.hash(state);
+                num.hash(state);
+            }
+            ZerosimTraceEvent::IrqStart { num } | ZerosimTraceEvent::IrqEnd { num } => {
+                2.hash(state);
+                num.hash(state);
+            }
+            ZerosimTraceEvent::ExceptionStart { error }
+            | ZerosimTraceEvent::ExceptionEnd { error, .. } => {
+                3.hash(state);
+                error.hash(state);
+            }
+            ZerosimTraceEvent::SoftIrqStart | ZerosimTraceEvent::SoftIrqEnd => {
+                4.hash(state);
+            }
+            ZerosimTraceEvent::Unknown { id, flags, .. } => {
+                5.hash(state);
+                (flags & !sys::ZEROSIM_TRACE_START).hash(state);
+                id.hash(state);
+            }
+        }
+    }
+}
+
+impl PartialEq for ZerosimTraceEvent {
+    fn eq(&self, other: &ZerosimTraceEvent) -> bool {
+        // Equal if the hashes are equal
+        let h_self = {
+            let mut s = DefaultHasher::new();
+            self.hash(&mut s);
+            s.finish()
+        };
+        let h_other = {
+            let mut s = DefaultHasher::new();
+            other.hash(&mut s);
+            s.finish()
+        };
+
+        h_self == h_other
+    }
+}
+impl Eq for ZerosimTraceEvent {}
+
 /// The raw interface.
 mod sys {
     use libc::syscall;
@@ -250,7 +307,7 @@ mod sys {
 
     use regex::Regex;
 
-    use super::ZerosimTracingError;
+    use super::ZerosimTraceError;
 
     pub const BEGIN_SYSCALL_NR: i64 = 546;
     pub const SNAPSHOT_SYSCALL_NR: i64 = 547;
@@ -315,10 +372,8 @@ mod sys {
         } else {
             match unsafe { *libc::__errno_location() } {
                 0 => Ok(()),
-                e if e == libc::EAGAIN.into() => Err(ZerosimTracingError::SizeFailedTemporarily)?,
-                e if e == libc::ENOMEM.into() => {
-                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
-                }
+                e if e == libc::EAGAIN.into() => Err(ZerosimTraceError::SizeFailedTemporarily)?,
+                e if e == libc::ENOMEM.into() => Err(ZerosimTraceError::KernelBuffersUnallocated)?,
                 e => panic!("unexpected error code: {}", e),
             }
         }
@@ -331,10 +386,8 @@ mod sys {
             Ok(())
         } else {
             match unsafe { *libc::__errno_location() } {
-                e if e == libc::ENOMEM.into() => {
-                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
-                }
-                e if e == libc::EINPROGRESS.into() => Err(ZerosimTracingError::AlreadyRunning)?,
+                e if e == libc::ENOMEM.into() => Err(ZerosimTraceError::KernelBuffersUnallocated)?,
+                e if e == libc::EINPROGRESS.into() => Err(ZerosimTraceError::AlreadyRunning)?,
                 e => panic!("unexpected error code: {}", e),
             }
         }
@@ -388,11 +441,9 @@ mod sys {
             Ok(buffer)
         } else {
             match *libc::__errno_location() {
-                e if e == libc::EBADE.into() => Err(ZerosimTracingError::NotTracing)?,
-                e if e == libc::ENOMEM.into() => {
-                    Err(ZerosimTracingError::KernelBuffersUnallocated)?
-                }
-                e if e == libc::EINVAL.into() => Err(ZerosimTracingError::BufferTooSmall)?,
+                e if e == libc::EBADE.into() => Err(ZerosimTraceError::NotTracing)?,
+                e if e == libc::ENOMEM.into() => Err(ZerosimTraceError::KernelBuffersUnallocated)?,
+                e if e == libc::EINVAL.into() => Err(ZerosimTraceError::BufferTooSmall)?,
                 e => panic!("unexpected error code: {}", e),
             }
         }

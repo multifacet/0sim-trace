@@ -10,6 +10,10 @@ use clap::clap_app;
 use crate::tracing::{Snapshot, ZerosimTraceEvent};
 
 pub fn cli_args() -> clap::App<'static, 'static> {
+    fn is_usize(s: String) -> Result<(), String> {
+        s.parse::<usize>().map(|_| ()).map_err(|e| format!("{}", e))
+    }
+
     (clap_app! {analyze =>
         (about: "Analyze an existing trace.")
         (@arg FILE: +required
@@ -21,6 +25,9 @@ pub fn cli_args() -> clap::App<'static, 'static> {
         )
         (@subcommand stats =>
             (about: "Compute per-cpu stats from the trace snapshot.")
+            (@arg FILTER: +takes_value {is_usize} -f --filter
+             "If passed, filter out all evetns that occur fewer than N times, \
+              where N is the value passed.")
         )
     })
     .setting(clap::AppSettings::SubcommandRequired)
