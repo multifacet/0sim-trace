@@ -29,6 +29,9 @@ impl Trace {
 
             (ZerosimTraceEvent::SoftIrqStart, ZerosimTraceEvent::SoftIrqEnd) => true,
 
+            // Subsequent events on the same core should always be matching...
+            (ZerosimTraceEvent::VmEnter { .. }, ZerosimTraceEvent::VmExit { .. }) => true,
+
             _ => false,
         }
     }
@@ -124,6 +127,8 @@ impl std::fmt::Display for PerCpuStats {
                 ZerosimTraceEvent::SoftIrqStart | ZerosimTraceEvent::SoftIrqEnd => {
                     format!("SOFTIRQ")
                 }
+                ZerosimTraceEvent::VmEnter { vcpu } => format!("VMENTER vcpu{:>24}", vcpu),
+                ZerosimTraceEvent::VmExit { reason, .. } => format!("VMEXIT {:>23X}", reason),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
             writeln!(
@@ -168,7 +173,8 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
                 ZerosimTraceEvent::SystemCallStart { .. }
                 | ZerosimTraceEvent::IrqStart { .. }
                 | ZerosimTraceEvent::ExceptionStart { .. }
-                | ZerosimTraceEvent::SoftIrqStart => {
+                | ZerosimTraceEvent::SoftIrqStart
+                | ZerosimTraceEvent::VmEnter { .. } => {
                     stack.push(ev);
                 }
 
@@ -176,7 +182,8 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
                 ZerosimTraceEvent::SystemCallEnd { .. }
                 | ZerosimTraceEvent::IrqEnd { .. }
                 | ZerosimTraceEvent::ExceptionEnd { .. }
-                | ZerosimTraceEvent::SoftIrqEnd => {
+                | ZerosimTraceEvent::SoftIrqEnd
+                | ZerosimTraceEvent::VmExit { .. } => {
                     if let Some(top) = stack.last() {
                         if top.matches(ev) {
                             // Match!

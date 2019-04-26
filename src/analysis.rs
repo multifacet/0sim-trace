@@ -71,6 +71,8 @@ pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure:
                 }
                 ZerosimTraceEvent::ExceptionStart { .. }
                 | ZerosimTraceEvent::ExceptionEnd { .. } => "FAULT",
+                ZerosimTraceEvent::VmEnter { .. } => "VMENTER",
+                ZerosimTraceEvent::VmExit { .. } => "VMEXIT",
                 ZerosimTraceEvent::Unknown { .. } => "??",
             };
 
@@ -78,14 +80,16 @@ pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure:
                 ZerosimTraceEvent::SystemCallStart { .. }
                 | ZerosimTraceEvent::IrqStart { .. }
                 | ZerosimTraceEvent::ExceptionStart { .. }
-                | ZerosimTraceEvent::SoftIrqStart => "START",
+                | ZerosimTraceEvent::SoftIrqStart
+                | ZerosimTraceEvent::VmEnter { .. } => "START",
 
                 ZerosimTraceEvent::TaskSwitch { .. }
                 | ZerosimTraceEvent::SystemCallEnd { .. }
                 | ZerosimTraceEvent::IrqEnd { .. }
                 | ZerosimTraceEvent::ExceptionEnd { .. }
                 | ZerosimTraceEvent::SoftIrqEnd
-                | ZerosimTraceEvent::Unknown { .. } => "",
+                | ZerosimTraceEvent::Unknown { .. }
+                | ZerosimTraceEvent::VmExit { .. } => "",
             };
 
             let id = match ev.event {
@@ -93,9 +97,12 @@ pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure:
                 ZerosimTraceEvent::SystemCallStart { num }
                 | ZerosimTraceEvent::SystemCallEnd { num, .. } => num,
                 ZerosimTraceEvent::IrqStart { num } | ZerosimTraceEvent::IrqEnd { num } => num,
-                ZerosimTraceEvent::SoftIrqStart { .. } | ZerosimTraceEvent::SoftIrqEnd { .. } => 0,
+                ZerosimTraceEvent::SoftIrqStart { .. }
+                | ZerosimTraceEvent::SoftIrqEnd { .. }
+                | ZerosimTraceEvent::VmEnter { .. } => 0,
                 ZerosimTraceEvent::ExceptionStart { error }
                 | ZerosimTraceEvent::ExceptionEnd { error, .. } => error,
+                ZerosimTraceEvent::VmExit { reason, .. } => reason as usize,
                 ZerosimTraceEvent::Unknown { id, .. } => id as usize,
             };
 
@@ -104,6 +111,8 @@ pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure:
                 ZerosimTraceEvent::SystemCallEnd { num, .. } => num,
                 ZerosimTraceEvent::ExceptionEnd { ip, .. } => ip as usize,
                 ZerosimTraceEvent::Unknown { extra, .. } => extra as usize,
+                ZerosimTraceEvent::VmEnter { vcpu } => vcpu,
+                ZerosimTraceEvent::VmExit { qual, .. } => qual as usize,
 
                 ZerosimTraceEvent::ExceptionStart { .. }
                 | ZerosimTraceEvent::SystemCallStart { .. }

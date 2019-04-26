@@ -243,6 +243,21 @@ pub enum ZerosimTraceEvent {
     /// The end of softirq processing.
     SoftIrqEnd,
 
+    /// A VM enter.
+    VmEnter {
+        /// The vcpu id of the virtual core we started running.
+        vcpu: usize,
+    },
+
+    /// A VM exit.
+    VmExit {
+        /// The VM exit reason from the VMCS.
+        reason: u32,
+
+        /// The VM exit qualification from the VMCS.
+        qual: u32,
+    },
+
     /// Any other trace
     Unknown { id: u32, flags: u32, extra: u32 },
 }
@@ -275,6 +290,14 @@ impl Hash for ZerosimTraceEvent {
                 5.hash(state);
                 (flags & !sys::ZEROSIM_TRACE_START).hash(state);
                 id.hash(state);
+            }
+            ZerosimTraceEvent::VmEnter { vcpu } => {
+                6.hash(state);
+                vcpu.hash(state);
+            }
+            ZerosimTraceEvent::VmExit { reason, .. } => {
+                7.hash(state);
+                reason.hash(state);
             }
         }
     }
