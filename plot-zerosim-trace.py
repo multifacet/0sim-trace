@@ -451,6 +451,10 @@ with open(filename, 'r') as f:
         pid = int(m.group(6))
         extra = int(m.group(7))
 
+        if not start and ts == 0 and eid == 0 and event != MARKER:
+            skipped.append((core, event))
+            continue
+
         if core not in data:
             data[core] = []
             per_cpu_min_ts[core] = None
@@ -458,10 +462,6 @@ with open(filename, 'r') as f:
             per_cpu_unmeasured[core] = []
             prev_task[core] = None
             unmeasured_start[core] = None
-
-        if not start and ts == 0 and eid == 0 and event != MARKER:
-            skipped.append((core, event))
-            continue
 
         ev = Event(event, start, ts, eid, pid, extra)
 
@@ -537,6 +537,10 @@ for cpu, cpu_data in data.items():
                     and ev.pid == pending[-1].pid:
                 start = pending.pop()
                 matched.append(IntervalEvent(ev.name, start.ts, ev.ts, ev.eid, ev.pid, ev.extra))
+            elif len(pending) > 0 \
+                    and ev.name == "VMEXIT" and pending[-1].name == "VMENTER":
+                start = pending.pop()
+                matched.append(IntervalEvent("VMRUN", start.ts, ev.ts, ev.eid, ev.pid, ev.extra))
             else:
                 matched.append(ev)
 
@@ -559,7 +563,8 @@ for cpu in data:
         per_cpu_min_ts[cpu] = max_ts
 
     cpu_lines.append([(0, cpu), (per_cpu_min_ts[cpu] - min_ts, cpu)])
-    cpu_lines.append([(per_cpu_unmeasured[cpu][-1][0] - min_ts, cpu), (max_ts - min_ts, cpu)])
+    if len(per_cpu_unmeasured[cpu]) > 0:
+        cpu_lines.append([(per_cpu_unmeasured[cpu][-1][0] - min_ts, cpu), (max_ts - min_ts, cpu)])
 
 for cpu, regions in per_cpu_unmeasured.items():
     for start, end in regions:

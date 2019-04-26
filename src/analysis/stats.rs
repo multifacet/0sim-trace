@@ -127,7 +127,7 @@ impl std::fmt::Display for PerCpuStats {
                 ZerosimTraceEvent::SoftIrqStart | ZerosimTraceEvent::SoftIrqEnd => {
                     format!("SOFTIRQ")
                 }
-                ZerosimTraceEvent::VmEnter { vcpu } => format!("VMENTER vcpu{:>24}", vcpu),
+                ZerosimTraceEvent::VmEnter { vcpu } => format!("VMENTER vcpu{:>18}", vcpu),
                 ZerosimTraceEvent::VmExit { reason, .. } => format!("VMEXIT {:>23X}", reason),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
