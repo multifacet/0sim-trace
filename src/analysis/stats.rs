@@ -70,12 +70,12 @@ impl PerCpuStats {
         let mut intervals = self.intervals;
         match ev {
             Event::Interval { start, end } => {
-                if !intervals.contains_key(&start.event) {
-                    intervals.insert(start.event, vec![]);
+                if !intervals.contains_key(&end.event) {
+                    intervals.insert(end.event, vec![]);
                 }
 
                 intervals
-                    .get_mut(&start.event)
+                    .get_mut(&end.event)
                     .map(|v| v.push((end.timestamp - start.timestamp) as f64));
             }
             Event::Point(..) => {}
@@ -128,7 +128,10 @@ impl std::fmt::Display for PerCpuStats {
                     format!("SOFTIRQ")
                 }
                 ZerosimTraceEvent::VmEnter { vcpu } => format!("VMENTER vcpu{:>18}", vcpu),
-                ZerosimTraceEvent::VmExit { reason, .. } => format!("VMEXIT {:>23X}", reason),
+                ZerosimTraceEvent::VmExit { reason, .. } => format!(
+                    "VMEXIT {:>#23}",
+                    reference::vm_exit_reason_name(*reason as usize)
+                ),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
             writeln!(
@@ -602,6 +605,77 @@ mod reference {
         "zerosim_trace_size",
     ];
 
+    // See Vol 3. Appendix C.
+    pub const X86_64_VM_EXIT_REASON: &[&str] = &[
+        "Fault/NMI",
+        "Ext Int",
+        "Triple",
+        "INIT",
+        "SIPI",
+        "SMI",
+        "SMI2",
+        "Int Win",
+        "NMI Win",
+        "Task Sw",
+        "CPUID",
+        "GETSEC",
+        "HLT",
+        "INVD",
+        "INVLPG",
+        "RDPMC",
+        "RDTSC",
+        "RSM",
+        "VMCALL",
+        "VMCLEAR",
+        "VMLAUNCH",
+        "VMPTRLD",
+        "VMPTRST",
+        "VMREAD",
+        "VMRESUME",
+        "VMWRITE",
+        "VMXOFF",
+        "VMXON",
+        "CR Access",
+        "MOV DR",
+        "I/O Inst",
+        "RDMSR",
+        "WRMSR",
+        "Enter Fail1",
+        "Enter Fail2",
+        "RESERVED",
+        "MWAIT",
+        "Mon Trap",
+        "RESERVERD",
+        "MONITOR",
+        "PAUSE",
+        "Enter Fail3",
+        "RESERVED",
+        "TPR<Thr",
+        "APIC Access",
+        "Virt EOI",
+        "I/GDTR",
+        "LD/TR",
+        "EPT Vio",
+        "EPT Misconf",
+        "INVEPT",
+        "RDTSCP",
+        "Preempt Timer",
+        "INVVPID",
+        "WBINVD",
+        "XSETBV",
+        "APIC Wr",
+        "RDRAND",
+        "INVPCID",
+        "VMFUNC",
+        "ENCLS",
+        "RDSEED",
+        "Pg Log Full",
+        "XSAVES",
+        "XRSTORS",
+        "RESERVED",
+        "SPP",
+    ];
+
     pub fn syscall_name(rax: usize) -> &'static str {
         if rax < 512 {
             LINUX_4_4_SYSCALLS_64_BIT[rax]
@@ -636,5 +710,9 @@ mod reference {
         } else {
             "??"
         }
+    }
+
+    pub fn vm_exit_reason_name(reason: usize) -> &'static str {
+        X86_64_VM_EXIT_REASON[reason]
     }
 }

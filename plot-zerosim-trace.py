@@ -403,18 +403,42 @@ class Event:
         return "<{} {} {} {} {} {}>".format(self.name, self.is_start,
                 self.ts, self.eid, self.pid, self.extra)
 
+    def display(self):
+        text = "{} id: {}{}\npid: {}\nextra: {}".format(
+                self.name, self.eid,
+                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[self.eid]) if self.name == "SYSCALL" else "",
+                self.pid, self.extra)
+
+        return (self.ts, text)
+
 class IntervalEvent:
-    def __init__(self, name, start_ts, end_ts, eid, pid, extra):
+    def __init__(self, name, start_ts, end_ts, eid, pid, extra, start_extra = None):
         self.name = name
         self.start_ts = start_ts
         self.end_ts = end_ts
         self.eid = eid
         self.pid = pid
         self.extra = extra
+        self.start_extra = start_extra
 
     def __repr__(self):
         return "[{} {} {} {} {} {}]".format(self.name, self.start_ts,
                 self.end_ts, self.eid, self.pid, self.extra)
+
+    def display(self):
+        if self.name == "VMRUN":
+            text = "{} vcpu: {}\nduration: {:,.3f} us\npid: {}\nexit reason: 0x{:X}\nexit qual: 0x{:X}".format(
+                    self.name, self.start_extra,
+                    self.end_ts - self.start_ts,
+                    self.pid, self.eid, self.extra)
+        else:
+            text = "{} id: {}{}\nduration: {:,.3f} us\npid: {}\nextra: {}".format(
+                    self.name, self.eid,
+                    (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[self.eid]) if self.name == "SYSCALL" else "",
+                    self.end_ts - self.start_ts,
+                    self.pid, self.extra)
+
+        return (self.start_ts, text)
 
 data = {}
 min_ts = None
@@ -540,7 +564,7 @@ for cpu, cpu_data in data.items():
             elif len(pending) > 0 \
                     and ev.name == "VMEXIT" and pending[-1].name == "VMENTER":
                 start = pending.pop()
-                matched.append(IntervalEvent("VMRUN", start.ts, ev.ts, ev.eid, ev.pid, ev.extra))
+                matched.append(IntervalEvent("VMRUN", start.ts, ev.ts, ev.eid, ev.pid, ev.extra, start.extra))
             else:
                 matched.append(ev)
 
@@ -683,22 +707,7 @@ def onpick(event):
         print("Unknown artist type: %s" % event.artist)
         return
 
-    ts = None
-    text = ""
-
-    if isinstance(trace_ev, IntervalEvent):
-        ts = trace_ev.start_ts
-        text = "{} id: {}{}\nduration: {:,.3f} us\npid: {}\nextra: {}".format(
-                trace_ev.name, trace_ev.eid,
-                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev.eid]) if trace_ev.name == "SYSCALL" else "",
-                trace_ev.end_ts - trace_ev.start_ts,
-                trace_ev.pid, trace_ev.extra)
-    else:
-        ts = trace_ev.ts
-        text = "{} id: {}{}\npid: {}\nextra: {}".format(
-                trace_ev.name, trace_ev.eid,
-                (" (%s)" % LINUX_4_4_SYSCALLS_64_BIT[trace_ev.eid]) if trace_ev.name == "SYSCALL" else "",
-                trace_ev.pid, trace_ev.extra)
+    ts, text = trace_ev.display()
 
     annot.xy = (ts - min_ts, cpu)
     annot.set_text(text)
