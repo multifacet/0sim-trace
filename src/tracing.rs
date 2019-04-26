@@ -172,6 +172,17 @@ impl Trace {
                     (ty, false) if ty == sys::ZEROSIM_TRACE_SOFTIRQ => {
                         ZerosimTraceEvent::SoftIrqEnd
                     }
+                    (ty, true) if ty == sys::ZEROSIM_TRACE_VMENTEREXIT => {
+                        ZerosimTraceEvent::VmEnter {
+                            vcpu: raw.extra as usize,
+                        }
+                    }
+                    (ty, false) if ty == sys::ZEROSIM_TRACE_VMENTEREXIT => {
+                        ZerosimTraceEvent::VmExit {
+                            reason: raw.id,
+                            qual: raw.extra,
+                        }
+                    }
                     _ => ZerosimTraceEvent::Unknown {
                         id: raw.id,
                         flags: raw.flags,
@@ -341,6 +352,7 @@ mod sys {
     pub const ZEROSIM_TRACE_FAULT: u32 = 0x0000_0003;
     pub const ZEROSIM_TRACE_SYSCALL: u32 = 0x0000_0004;
     pub const ZEROSIM_TRACE_SOFTIRQ: u32 = 0x0000_0005;
+    pub const ZEROSIM_TRACE_VMENTEREXIT: u32 = 0x0000_0006;
 
     pub const ZEROSIM_TRACE_START: u32 = 0x8000_0000;
 
@@ -370,6 +382,8 @@ mod sys {
                     "SYSCALL"
                 } else if ty == ZEROSIM_TRACE_SOFTIRQ {
                     "SOFTIRQ"
+                } else if ty == ZEROSIM_TRACE_VMENTEREXIT {
+                    "VMENTEREXIT"
                 } else {
                     "??"
                 },
