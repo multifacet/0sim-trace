@@ -445,6 +445,7 @@ min_ts = None
 max_ts = None
 
 per_cpu_min_ts = {}
+per_cpu_max_ts = {}
 
 # Keep track of the pids for all events. When the pid changes, we start a new
 # interval for a new task.
@@ -482,6 +483,7 @@ with open(filename, 'r') as f:
         if core not in data:
             data[core] = []
             per_cpu_min_ts[core] = None
+            per_cpu_max_ts[core] = None
             per_cpu_tasks[core] = []
             per_cpu_unmeasured[core] = []
             prev_task[core] = None
@@ -516,6 +518,8 @@ with open(filename, 'r') as f:
 
         if per_cpu_min_ts[core] is None or ts < per_cpu_min_ts[core]:
             per_cpu_min_ts[core] = ts
+        if per_cpu_max_ts[core] is None or ts > per_cpu_max_ts[core]:
+            per_cpu_max_ts[core] = ts
 
         if prev_task[core] is None:
             prev_task[core] = ev
@@ -589,6 +593,8 @@ for cpu in data:
     cpu_lines.append([(0, cpu), (per_cpu_min_ts[cpu] - min_ts, cpu)])
     if len(per_cpu_unmeasured[cpu]) > 0:
         cpu_lines.append([(per_cpu_unmeasured[cpu][-1][0] - min_ts, cpu), (max_ts - min_ts, cpu)])
+    elif per_cpu_max_ts[cpu] is not None:
+        cpu_lines.append([(per_cpu_max_ts[cpu] - min_ts, cpu), (max_ts - min_ts, cpu)])
 
 for cpu, regions in per_cpu_unmeasured.items():
     for start, end in regions:
