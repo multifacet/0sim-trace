@@ -1,10 +1,26 @@
 //! Computing stats over snapshots.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use statrs::statistics::OrderStatistics;
 
 use crate::tracing::{Snapshot, Trace, ZerosimTraceEvent};
+
+// Window sizes for moving averages. Small window = high frequency.
+
+const ALPHA_LOW: usize = 50;
+const ALPHA_HIGH: usize = 1;
+
+/// This is the threshold for "a lot" of divergence. Specifically if we compute the following:
+///
+///    | avg_lo - avg_hi | / (avg_lo + avg_hi)
+///
+/// If this ratio is more than `AVERAGE_DIVERGENCE_THRESH`, then we consider the divergence to be
+/// "a lot".
+///
+/// We use the sum in the demoninator so that changes are normalized to both sums. That is, if one
+/// sum becomes very small or very large, we don't want it to be drowned out.
+const AVERAGE_DIVERGENCE_THRESH: f64 = 0.30; // 40 %
 
 impl Trace {
     /// Returns true if `other` is the ending event for this beginning event.
@@ -51,8 +67,14 @@ enum Event<'snap> {
 struct PerCpuStats {
     intervals: HashMap<ZerosimTraceEvent, Vec<f64>>,
 
-    // Computed stats (median, p99, count)
+    //////////////////
+    // Computed stats
+    //////////////////
+
+    // (median, p99, count)
     computed: HashMap<ZerosimTraceEvent, (f64, f64, f64)>,
+    // Moving average divergence intervals (lo, hi, idx, value)
+    divergence: HashMap<ZerosimTraceEvent, Vec<(f64, f64, usize, f64)>>,
 }
 
 impl PerCpuStats {
@@ -62,6 +84,7 @@ impl PerCpuStats {
             intervals: HashMap::new(),
 
             computed: HashMap::new(),
+            divergence: HashMap::new(),
         }
     }
 
@@ -87,8 +110,8 @@ impl PerCpuStats {
     /// Do any computations that require the whole dataset.
     pub fn finalize(&mut self, filter: Option<usize>) {
         for (ev, intervals) in self.intervals.iter_mut() {
-            let median = intervals.percentile(50);
-            let p99 = intervals.percentile(99);
+            let median = intervals.clone().percentile(50);
+            let p99 = intervals.clone().percentile(99);
             let count = intervals.len();
             if let Some(filter) = filter {
                 if count < filter {
@@ -96,6 +119,9 @@ impl PerCpuStats {
                 }
             }
             self.computed.insert(*ev, (median, p99, count as f64));
+
+            self.divergence
+                .insert(*ev, compute_moving_averages(intervals));
         }
     }
 
@@ -134,21 +160,86 @@ impl std::fmt::Display for PerCpuStats {
                 ),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
+            let ndiv = self.divergence.get(ev).unwrap().len();
             writeln!(
                 f,
-                "{:5} {:30} {:15.0} {:15.3} {:15.3}",
-                "", ev_name, count, median, p99
+                "{:5} {:30} {:15.0} {:15.3} {:15.3} {:7.3} ({:5.3})",
+                "",
+                ev_name,
+                count,
+                median,
+                p99,
+                ndiv,
+                ndiv as f64 * 100. / count
             )?;
+
+            /* debugging
+            let divergences = self.divergence.get(ev).unwrap();
+            writeln!(f, "{:?}", divergences)?;
+            writeln!(f, "{:?}", self.intervals.get(ev).unwrap())?;
+            */
         }
 
         Ok(())
     }
 }
 
+/// Compute two moving averages over the data. Highlight points at which the averages diverage more
+/// than a given amount.
+///
+/// Returns the list of divergence points. Specifically, a list of indices into `data` where the
+/// moving averages diverge.
+fn compute_moving_averages(data: &[f64]) -> Vec<(f64, f64, usize, f64)> {
+    let mut divergence = vec![];
+
+    // We need at least `ALPHA_LOW` elements to compute the average for the low-freq window. So if
+    // there is not even that much data, then we cannot really do anything.
+    if data.len() < ALPHA_LOW {
+        return divergence;
+    }
+
+    // Otherwise compute the initial sums
+    assert!(ALPHA_HIGH < ALPHA_LOW);
+
+    let mut sum_lo: f64 = data[0..ALPHA_LOW].iter().sum();
+    let mut sum_hi: f64 = data[ALPHA_LOW - ALPHA_HIGH..ALPHA_LOW].iter().sum();
+
+    let mut iter = data.iter().enumerate().skip(ALPHA_LOW);
+    let mut i = ALPHA_LOW;
+
+    loop {
+        // Check if the averages diverge by the threshold amount.
+        let avg_lo = sum_lo / (ALPHA_LOW as f64);
+        let avg_hi = sum_hi / (ALPHA_HIGH as f64);
+        let dev = (avg_lo - avg_hi).abs() / (avg_lo + avg_hi);
+        if dev >= AVERAGE_DIVERGENCE_THRESH {
+            //println!("{:?} {}", (sum_lo, sum_hi, i, data[i - 1]), dev);
+            divergence.push((avg_lo, avg_hi, i, data[i]));
+        }
+
+        // Update the sums/iterators.
+        if let Some((i_prime, x)) = iter.next() {
+            sum_lo += x - data[i_prime - ALPHA_LOW];
+            sum_hi += x - data[i_prime - ALPHA_HIGH];
+            i = i_prime;
+        } else {
+            break;
+        }
+    }
+
+    divergence
+}
+
 pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
     let filter = sub_m
         .value_of("FILTER")
         .map(|arg| arg.parse::<usize>().unwrap());
+
+    let cores: Option<HashSet<_>> = sub_m
+        .values_of("CORE")
+        .map(|values| values.map(|arg| arg.parse::<usize>().unwrap()).collect());
+
+    println!("{:?}", cores);
 
     /*
      * We start by finding all of the matching start/stop events and creating a stream of events.
@@ -217,10 +308,14 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
      * Compute and print stats over the event streams for each cpu we computed above.
      */
     println!(
-        "{:>5} {:30} {:>15} {:>15} {:>15}",
-        "core", "event", "count", "median (cyc)", "p99 (cyc)"
+        "{:>5} {:30} {:>15} {:>15} {:>15} {:>15}",
+        "core", "event", "count", "median (cyc)", "p99 (cyc)", "# divergent (%)"
     );
-    for (i, cpu) in per_cpu_events.into_iter().enumerate() {
+    for (i, cpu) in per_cpu_events
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| cores.is_none() || cores.as_ref().unwrap().contains(i))
+    {
         let mut stats = cpu
             .iter()
             .fold(PerCpuStats::empty(), PerCpuStats::fold_event);

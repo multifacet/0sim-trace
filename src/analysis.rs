@@ -2,6 +2,7 @@
 
 mod stats;
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -16,18 +17,22 @@ pub fn cli_args() -> clap::App<'static, 'static> {
 
     (clap_app! {analyze =>
         (about: "Analyze an existing trace.")
-        (@arg FILE: +required
+        (@arg FILE: +required ...
          "The file where the snapshot is stored.")
         (@subcommand dump =>
             (about: "Dump the snapshot in a human- (and python-) readable format.")
             (@arg OUTPUT_FILE: +required
              "The name of the file to dump to.")
+            (@arg CORE: +takes_value ... {is_usize} -C --core
+             "If passed, only dump traces for the given core. Can be used multiple times.")
         )
         (@subcommand stats =>
             (about: "Compute per-cpu stats from the trace snapshot.")
             (@arg FILTER: +takes_value {is_usize} -f --filter
              "If passed, filter out all evetns that occur fewer than N times, \
               where N is the value passed.")
+            (@arg CORE: +takes_value ... {is_usize} -C --core
+             "If passed, only show stats for the given core. Can be used multiple times.")
         )
     })
     .setting(clap::AppSettings::SubcommandRequired)
@@ -35,23 +40,36 @@ pub fn cli_args() -> clap::App<'static, 'static> {
 }
 
 pub fn analyze(matches: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
-    let snap = crate::record::deserialize(matches.value_of("FILE").unwrap())?;
+    for file in matches.values_of("FILE").unwrap() {
+        let snap = crate::record::deserialize(file)?;
 
-    match matches.subcommand() {
-        ("dump", Some(sub_m)) => dump(snap, sub_m),
-        ("stats", Some(sub_m)) => stats::stats(snap, sub_m),
+        match matches.subcommand() {
+            ("dump", Some(sub_m)) => dump(snap, sub_m)?,
+            ("stats", Some(sub_m)) => stats::stats(snap, sub_m)?,
 
-        _ => unreachable!(),
+            _ => unreachable!(),
+        }
     }
+
+    Ok(())
 }
 
 /// Dump the trace in a human (and python) readable format. This format is not space-efficient, but
 /// it is easy to read (as a human) and easy parse (in a script).
 pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
+    let cores: Option<HashSet<_>> = sub_m
+        .values_of("CORE")
+        .map(|values| values.map(|arg| arg.parse::<usize>().unwrap()).collect());
+
     let filename = sub_m.value_of("OUTPUT_FILE").unwrap();
     let f = File::create(filename)?;
     let mut buf = BufWriter::new(f);
-    for (i, cpu) in snap.cpus().into_iter().enumerate() {
+    for (i, cpu) in snap
+        .cpus()
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| cores.is_none() || cores.as_ref().unwrap().contains(i))
+    {
         writeln!(
             buf,
             "{} {:<15} {:5} ts: {}, id: {}, pid: {}, extra: {}",
