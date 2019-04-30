@@ -239,8 +239,6 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
         .values_of("CORE")
         .map(|values| values.map(|arg| arg.parse::<usize>().unwrap()).collect());
 
-    println!("{:?}", cores);
-
     /*
      * We start by finding all of the matching start/stop events and creating a stream of events.
      * We need to be able to handle nested events (e.g. a syscall may have a lot of interrupting
