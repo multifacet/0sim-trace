@@ -75,6 +75,10 @@ struct PerCpuStats {
     computed: HashMap<ZerosimTraceEvent, (f64, f64, f64)>,
     // Moving average divergence intervals (lo, hi, idx, value)
     divergence: HashMap<ZerosimTraceEvent, Vec<(f64, f64, usize, f64)>>,
+
+    // Earliest and latest timestamps (None if no events)
+    earliest: Option<u64>,
+    latest: Option<u64>,
 }
 
 impl PerCpuStats {
@@ -85,11 +89,14 @@ impl PerCpuStats {
 
             computed: HashMap::new(),
             divergence: HashMap::new(),
+
+            earliest: None,
+            latest: None,
         }
     }
 
     /// Update the stats.
-    pub fn fold_event(self, ev: &Event) -> Self {
+    pub fn fold_event(mut self, ev: &Event) -> Self {
         let mut intervals = self.intervals;
         match ev {
             Event::Interval { start, end } => {
@@ -100,8 +107,24 @@ impl PerCpuStats {
                 intervals
                     .get_mut(&end.event)
                     .map(|v| v.push((end.timestamp - start.timestamp) as f64));
+
+                if self.earliest.is_none() || self.earliest.unwrap() > start.timestamp {
+                    self.earliest = Some(start.timestamp);
+                }
+
+                if self.latest.is_none() || self.latest.unwrap() < end.timestamp {
+                    self.latest = Some(end.timestamp);
+                }
             }
-            Event::Point(..) => {}
+            Event::Point(point) => {
+                if self.earliest.is_none() || self.earliest.unwrap() > point.timestamp {
+                    self.earliest = Some(point.timestamp);
+                }
+
+                if self.latest.is_none() || self.latest.unwrap() < point.timestamp {
+                    self.latest = Some(point.timestamp);
+                }
+            }
         }
 
         Self { intervals, ..self }
@@ -163,9 +186,14 @@ impl std::fmt::Display for PerCpuStats {
             let ndiv = self.divergence.get(ev).unwrap().len();
             writeln!(
                 f,
-                "{:5} {:30} {:15.0} {:15.3} {:15.3} {:7.3} ({:5.3})",
+                "{:5} {:30} {:15} {:15.0} {:15.3} {:15.3} {:7.3} ({:5.3})",
                 "",
                 ev_name,
+                if self.latest.is_some() {
+                    self.latest.unwrap() - self.earliest.unwrap()
+                } else {
+                    0
+                },
                 count,
                 median,
                 p99,
@@ -306,8 +334,8 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
      * Compute and print stats over the event streams for each cpu we computed above.
      */
     println!(
-        "{:>5} {:30} {:>15} {:>15} {:>15} {:>15}",
-        "core", "event", "count", "median (cyc)", "p99 (cyc)", "# divergent (%)"
+        "{:>5} {:30} {:>15} {:>15} {:>15} {:>15} {:>15}",
+        "core", "event", "duration (cyc)", "count", "median (cyc)", "p99 (cyc)", "# divergent (%)"
     );
     for (i, cpu) in per_cpu_events
         .into_iter()

@@ -388,6 +388,76 @@ LINUX_4_4_SYSCALLS_64_BIT = {
         548: "zerosim_trace_size",
 }
 
+X86_VM_EXIT_REASON = [
+        "Fault/NMI",
+        "Ext Int",
+        "Triple",
+        "INIT",
+        "SIPI",
+        "SMI",
+        "SMI2",
+        "Int Win",
+        "NMI Win",
+        "Task Sw",
+        "CPUID",
+        "GETSEC",
+        "HLT",
+        "INVD",
+        "INVLPG",
+        "RDPMC",
+        "RDTSC",
+        "RSM",
+        "VMCALL",
+        "VMCLEAR",
+        "VMLAUNCH",
+        "VMPTRLD",
+        "VMPTRST",
+        "VMREAD",
+        "VMRESUME",
+        "VMWRITE",
+        "VMXOFF",
+        "VMXON",
+        "CR Access",
+        "MOV DR",
+        "I/O Inst",
+        "RDMSR",
+        "WRMSR",
+        "Enter Fail1",
+        "Enter Fail2",
+        "RESERVED",
+        "MWAIT",
+        "Mon Trap",
+        "RESERVERD",
+        "MONITOR",
+        "PAUSE",
+        "Enter Fail3",
+        "RESERVED",
+        "TPR<Thr",
+        "APIC Access",
+        "Virt EOI",
+        "I/GDTR",
+        "LD/TR",
+        "EPT Vio",
+        "EPT Misconf",
+        "INVEPT",
+        "RDTSCP",
+        "Preempt Timer",
+        "INVVPID",
+        "WBINVD",
+        "XSETBV",
+        "APIC Wr",
+        "RDRAND",
+        "INVPCID",
+        "VMFUNC",
+        "ENCLS",
+        "RDSEED",
+        "Pg Log Full",
+        "XSAVES",
+        "XRSTORS",
+        "RESERVED",
+        "SPP",
+    ]
+
 filename = argv[1]
 
 class Event:
@@ -427,10 +497,10 @@ class IntervalEvent:
 
     def display(self):
         if self.name == "VMRUN":
-            text = "{} vcpu: {}\nduration: {:,.3f} us\npid: {}\nexit reason: 0x{:X}\nexit qual: 0x{:X}".format(
+            text = "{} vcpu: {}\nduration: {:,.3f} us\npid: {}\nexit reason: 0x{:X} ({})\nexit qual: 0x{:X}".format(
                     self.name, self.start_extra,
                     self.end_ts - self.start_ts,
-                    self.pid, self.eid, self.extra)
+                    self.pid, self.eid, X86_VM_EXIT_REASON[self.eid], self.extra)
         else:
             text = "{} id: {}{}\nduration: {:,.3f} us\npid: {}\nextra: {}".format(
                     self.name, self.eid,
@@ -655,11 +725,11 @@ for cpu, cpu_data in data.items():
             rect = patches.Rectangle(
                     (ev.start_ts - min_ts, cpu - INTERVAL_HEIGHT/2),
                     ev.end_ts - ev.start_ts, INTERVAL_HEIGHT,
-                    color=get_label_color(ev.name), fill=True, alpha=1, picker=True)
+                    color=get_label_color((ev.name, ev.eid)), fill=True, alpha=1, picker=True)
             plot_map[rect] = (cpu, ev)
             events_patches.append(rect)
         else:
-            scattered.append((ev.ts - min_ts, cpu, get_label_color(ev.name)))
+            scattered.append((ev.ts - min_ts, cpu, get_label_color((ev.name, ev.eid))))
             scattered_events.append((cpu, ev))
 
 # draw short event last so they are on top.
@@ -670,8 +740,9 @@ ax.add_collection(
         collect.PatchCollection(events_patches, match_original=True, picker=True,
             zorder=3))
 
-xs, ys, cs = zip(*scattered)
-ax.scatter(xs, ys, color=cs, marker='.', s=50, zorder=9999, picker=True)
+if len(scattered) > 0:
+    xs, ys, cs = zip(*scattered)
+    ax.scatter(xs, ys, color=cs, marker='.', s=50, zorder=9999, picker=True)
 
 print("done plotting events %s" % datetime.datetime.now())
 
@@ -732,6 +803,9 @@ plt.yticks([c for c in data], ["CPU%d" % c for c in data])
 
 plt.setp(( ax.get_yticklines() +
           list(ax.spines.values())), visible=False)
+
+plt.xlim(0, max_ts - min_ts)
+plt.ylim(min(per_cpu_max_ts.keys()) - 0.5, max(per_cpu_max_ts.keys()) + 0.5)
 
 # Plot
 plt.show()

@@ -3,7 +3,7 @@
 mod stats;
 
 use std::collections::HashSet;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 
 use clap::clap_app;
@@ -40,11 +40,11 @@ pub fn cli_args() -> clap::App<'static, 'static> {
 }
 
 pub fn analyze(matches: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
-    for file in matches.values_of("FILE").unwrap() {
+    for (i, file) in matches.values_of("FILE").unwrap().enumerate() {
         let snap = crate::record::deserialize(file)?;
 
         match matches.subcommand() {
-            ("dump", Some(sub_m)) => dump(snap, sub_m)?,
+            ("dump", Some(sub_m)) => dump(snap, sub_m, i == 0)?,
             ("stats", Some(sub_m)) => stats::stats(snap, sub_m)?,
 
             _ => unreachable!(),
@@ -56,13 +56,21 @@ pub fn analyze(matches: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
 
 /// Dump the trace in a human (and python) readable format. This format is not space-efficient, but
 /// it is easy to read (as a human) and easy parse (in a script).
-pub fn dump(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure::Error> {
+pub fn dump(
+    snap: Snapshot,
+    sub_m: &clap::ArgMatches<'_>,
+    is_first: bool,
+) -> Result<(), failure::Error> {
     let cores: Option<HashSet<_>> = sub_m
         .values_of("CORE")
         .map(|values| values.map(|arg| arg.parse::<usize>().unwrap()).collect());
 
     let filename = sub_m.value_of("OUTPUT_FILE").unwrap();
-    let f = File::create(filename)?;
+    let f = if is_first {
+        File::create(filename)?
+    } else {
+        OpenOptions::new().append(true).open(filename)?
+    };
     let mut buf = BufWriter::new(f);
     for (i, cpu) in snap
         .cpus()
