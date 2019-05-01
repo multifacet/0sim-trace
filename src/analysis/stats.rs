@@ -66,6 +66,7 @@ enum Event<'snap> {
 /// Stats computed over traces from one CPU.
 struct PerCpuStats {
     intervals: HashMap<ZerosimTraceEvent, Vec<f64>>,
+    points: HashMap<ZerosimTraceEvent, Vec<u64>>,
 
     //////////////////
     // Computed stats
@@ -86,6 +87,7 @@ impl PerCpuStats {
     pub fn empty() -> Self {
         PerCpuStats {
             intervals: HashMap::new(),
+            points: HashMap::new(),
 
             computed: HashMap::new(),
             divergence: HashMap::new(),
@@ -98,6 +100,7 @@ impl PerCpuStats {
     /// Update the stats.
     pub fn fold_event(mut self, ev: &Event) -> Self {
         let mut intervals = self.intervals;
+        let mut points = self.points;
         match ev {
             Event::Interval { start, end } => {
                 if !intervals.contains_key(&end.event) {
@@ -117,6 +120,14 @@ impl PerCpuStats {
                 }
             }
             Event::Point(point) => {
+                if !points.contains_key(&point.event) {
+                    points.insert(point.event, vec![]);
+                }
+
+                points
+                    .get_mut(&point.event)
+                    .map(|v| v.push(point.timestamp));
+
                 if self.earliest.is_none() || self.earliest.unwrap() > point.timestamp {
                     self.earliest = Some(point.timestamp);
                 }
@@ -127,7 +138,11 @@ impl PerCpuStats {
             }
         }
 
-        Self { intervals, ..self }
+        Self {
+            intervals,
+            points,
+            ..self
+        }
     }
 
     /// Do any computations that require the whole dataset.
@@ -145,6 +160,17 @@ impl PerCpuStats {
 
             self.divergence
                 .insert(*ev, compute_moving_averages(intervals));
+        }
+
+        for (ev, point) in self.points.iter_mut() {
+            let count = point.len();
+            if let Some(filter) = filter {
+                if count < filter {
+                    continue;
+                }
+            }
+            self.computed
+                .insert(*ev, (std::f64::NAN, std::f64::NAN, count as f64));
         }
     }
 
@@ -183,7 +209,7 @@ impl std::fmt::Display for PerCpuStats {
                 ),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
-            let ndiv = self.divergence.get(ev).unwrap().len();
+            let ndiv = self.divergence.get(ev).map(|divs| divs.len()).unwrap_or(0);
             writeln!(
                 f,
                 "{:5} {:30} {:15} {:15.0} {:15.3} {:15.3} {:7.3} ({:5.3})",
