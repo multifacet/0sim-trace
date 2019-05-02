@@ -753,7 +753,7 @@ legend_elements = [
            markersize=15, color='w', label='Discrete Event'),
 ]
 
-for label, color in label_colors.items():
+for label, color in sorted(label_colors.items()):
     legend_elements.append(lines.Line2D([0], [0], color=color, lw=4, label=label))
 
 ax.legend(handles=legend_elements, bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
