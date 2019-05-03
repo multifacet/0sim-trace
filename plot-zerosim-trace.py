@@ -10,6 +10,7 @@ import re
 import random
 import datetime
 
+from ast import literal_eval
 from sys import argv
 
 RE=r'''(\d+) ([\w?_]+)\s+(\w+)?\s+ts: (\d+), id: (\d+), pid: (\d+), extra: (\d+)'''
@@ -460,6 +461,10 @@ X86_VM_EXIT_REASON = [
 
 filename = argv[1]
 
+highlight = None
+if len(argv) > 2:
+    highlight = literal_eval(argv[2])
+
 class Event:
     def __init__(self, name, is_start, ts, eid, pid, extra):
         self.name = name
@@ -719,6 +724,8 @@ plot_map = {}
 scattered = []
 scattered_events = []
 
+highlighted = []
+
 for cpu, cpu_data in data.items():
     for ev in cpu_data:
         if isinstance(ev, IntervalEvent):
@@ -732,6 +739,12 @@ for cpu, cpu_data in data.items():
             scattered.append((ev.ts - min_ts, cpu, get_label_color((ev.name, ev.eid))))
             scattered_events.append((cpu, ev))
 
+        if (ev.name, ev.eid) == highlight: # false if highlight is None
+            if isinstance(ev, IntervalEvent):
+                highlighted.append((ev.start_ts - min_ts, cpu + TASK_HEIGHT/2))
+            else:
+                highlighted.append((ev.ts - min_ts, cpu + TASK_HEIGHT/2))
+
 # draw short event last so they are on top.
 # zorder doesn't work for collections of patches.
 events_patches.sort(reverse=True, key=lambda p: p.get_width())
@@ -744,6 +757,10 @@ if len(scattered) > 0:
     xs, ys, cs = zip(*scattered)
     ax.scatter(xs, ys, color=cs, marker='.', s=50, zorder=9999, picker=True)
 
+if len(highlight) > 0:
+    xs, ys = zip(*highlighted)
+    ax.scatter(xs, ys, color=get_label_color(highlight), marker='v', s=50, zorder=9999)
+
 print("done plotting events %s" % datetime.datetime.now())
 
 # Custom legend
@@ -752,6 +769,10 @@ legend_elements = [
    lines.Line2D([0], [0], markerfacecolor='k', marker='.', \
            markersize=15, color='w', label='Discrete Event'),
 ]
+
+if len(highlighted) > 0:
+    legend_elements.append(lines.Line2D([0], [0], markerfacecolor='k', marker='v', \
+           markersize=15, color='w', label='Highlighted Event'))
 
 for label, color in sorted(label_colors.items()):
     legend_elements.append(lines.Line2D([0], [0], color=color, lw=4, label=label))
