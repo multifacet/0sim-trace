@@ -169,8 +169,13 @@ impl PerCpuStats {
                     continue;
                 }
             }
-            self.computed
-                .insert(*ev, (std::f64::NAN, std::f64::NAN, count as f64));
+
+            if let Some((_, _, count)) = self.computed.get_mut(ev) {
+                *count += point.len() as f64;
+            } else {
+                self.computed
+                    .insert(*ev, (std::f64::NAN, std::f64::NAN, count as f64));
+            }
         }
     }
 
@@ -259,7 +264,7 @@ fn compute_moving_averages(data: &[f64]) -> Vec<(f64, f64, usize, f64)> {
     let mut sum_hi: f64 = data[ALPHA_LOW - ALPHA_HIGH..ALPHA_LOW].iter().sum();
 
     let mut iter = data.iter().enumerate().skip(ALPHA_LOW);
-    let mut i = ALPHA_LOW;
+    let mut i = ALPHA_LOW - 1;
 
     loop {
         // Check if the averages diverge by the threshold amount.
