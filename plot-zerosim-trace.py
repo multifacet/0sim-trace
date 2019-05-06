@@ -757,7 +757,7 @@ if len(scattered) > 0:
     xs, ys, cs = zip(*scattered)
     ax.scatter(xs, ys, color=cs, marker='.', s=50, zorder=9999, picker=True)
 
-if len(highlight) > 0:
+if len(highlighted) > 0:
     xs, ys = zip(*highlighted)
     ax.scatter(xs, ys, color=get_label_color(highlight), marker='v', s=50, zorder=9999)
 
