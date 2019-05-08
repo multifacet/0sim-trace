@@ -63,6 +63,19 @@ enum Event<'snap> {
     Point(&'snap Trace),
 }
 
+/// Represents an interrupt that caused a VMEXIT.
+#[derive(Debug, Copy, Clone)]
+struct GuestExternalInterrupts {
+    /// The TSC on the host at the time of the interrupt.
+    host_ts: usize,
+    /// The TSC on the guest at the time of the interrupt.
+    guest_ts: usize,
+    /// Host time since last interrupt.
+    host_time_since_last: usize,
+    /// Guest time since last interrupt.
+    guest_time_since_last: usize,
+}
+
 /// Stats computed over traces from one CPU.
 struct PerCpuStats {
     intervals: HashMap<ZerosimTraceEvent, Vec<f64>>,
@@ -80,6 +93,10 @@ struct PerCpuStats {
     // Earliest and latest timestamps (None if no events)
     earliest: Option<u64>,
     latest: Option<u64>,
+
+    // External Interrupts that caused VMEXIT
+    total_guest_elapsed_time: usize,
+    vmexit_interrupts: Vec<GuestExternalInterrupts>,
 }
 
 impl PerCpuStats {
@@ -94,6 +111,9 @@ impl PerCpuStats {
 
             earliest: None,
             latest: None,
+
+            total_guest_elapsed_time: 0,
+            vmexit_interrupts: Vec::new(),
         }
     }
 
@@ -117,6 +137,29 @@ impl PerCpuStats {
 
                 if self.latest.is_none() || self.latest.unwrap() < end.timestamp {
                     self.latest = Some(end.timestamp);
+                }
+
+                match end.event {
+                    ZerosimTraceEvent::VmExit { reason, qual } => {
+                        let duration = end.timestamp - start.timestamp;
+                        self.total_guest_elapsed_time += duration as usize;
+                        let host_time = end.timestamp as usize;
+
+                        let prev_int = self.vmexit_interrupts.last();
+
+                        // External interrupt for LAPIC timer
+                        if reason == 0x1 && qual == 0xEF {
+                            self.vmexit_interrupts.push(GuestExternalInterrupts {
+                                host_ts: host_time,
+                                guest_ts: self.total_guest_elapsed_time,
+                                host_time_since_last: host_time
+                                    - prev_int.map(|i| i.host_ts).unwrap_or(0),
+                                guest_time_since_last: self.total_guest_elapsed_time
+                                    - prev_int.map(|i| i.guest_ts).unwrap_or(0),
+                            });
+                        }
+                    }
+                    _ => {}
                 }
             }
             Event::Point(point) => {
@@ -237,6 +280,18 @@ impl std::fmt::Display for PerCpuStats {
             writeln!(f, "{:?}", divergences)?;
             writeln!(f, "{:?}", self.intervals.get(ev).unwrap())?;
             */
+        }
+
+        for int in self.vmexit_interrupts.iter() {
+            writeln!(
+                f,
+                "{:15} {:10} {:10} {:10} {:10}",
+                int.host_ts,
+                int.guest_ts,
+                int.host_time_since_last,
+                int.guest_time_since_last,
+                int.host_time_since_last - int.guest_time_since_last
+            )?;
         }
 
         Ok(())
