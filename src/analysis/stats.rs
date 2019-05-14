@@ -146,16 +146,17 @@ impl PerCpuStats {
                         let host_time = end.timestamp as usize;
 
                         let prev_int = self.vmexit_interrupts.last();
+                        let prev_host_time = prev_int.map(|i| i.host_ts).unwrap_or(0);
+                        let prev_guest_time = prev_int.map(|i| i.guest_ts).unwrap_or(0);
 
                         // External interrupt for LAPIC timer
                         if reason == 0x1 && qual == 0xEF {
                             self.vmexit_interrupts.push(GuestExternalInterrupts {
                                 host_ts: host_time,
                                 guest_ts: self.total_guest_elapsed_time,
-                                host_time_since_last: host_time
-                                    - prev_int.map(|i| i.host_ts).unwrap_or(0),
+                                host_time_since_last: host_time - prev_host_time,
                                 guest_time_since_last: self.total_guest_elapsed_time
-                                    - prev_int.map(|i| i.guest_ts).unwrap_or(0),
+                                    - prev_guest_time,
                             });
                         }
                     }
