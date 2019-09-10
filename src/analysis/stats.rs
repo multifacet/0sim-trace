@@ -48,6 +48,13 @@ impl Trace {
             // Subsequent events on the same core should always be matching...
             (ZerosimTraceEvent::VmEnter { .. }, ZerosimTraceEvent::VmExit { .. }) => true,
 
+            (
+                ZerosimTraceEvent::VmDelayBegin {
+                    vcpu: vcpu_begin, ..
+                },
+                ZerosimTraceEvent::VmDelayEnd { vcpu: vcpu_end },
+            ) if vcpu_begin == vcpu_end => true,
+
             _ => false,
         }
     }
@@ -256,6 +263,10 @@ impl std::fmt::Display for PerCpuStats {
                     "VMEXIT {:>#23}",
                     reference::vm_exit_reason_name(*reason as usize)
                 ),
+                ZerosimTraceEvent::VmDelayBegin { vcpu, behind } => {
+                    format!("VMDELAY vcpu{:>18} {}cyc", vcpu, behind)
+                }
+                ZerosimTraceEvent::VmDelayEnd { vcpu } => format!("VMDELAYEND vcpu{:>18}", vcpu),
                 ZerosimTraceEvent::Unknown { id, flags, .. } => format!("?? {} {:b}", id, flags),
             };
             let ndiv = self.divergence.get(ev).map(|divs| divs.len()).unwrap_or(0);
@@ -381,7 +392,8 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
                 | ZerosimTraceEvent::IrqStart { .. }
                 | ZerosimTraceEvent::ExceptionStart { .. }
                 | ZerosimTraceEvent::SoftIrqStart
-                | ZerosimTraceEvent::VmEnter { .. } => {
+                | ZerosimTraceEvent::VmEnter { .. }
+                | ZerosimTraceEvent::VmDelayBegin { .. } => {
                     stack.push(ev);
                 }
 
@@ -390,7 +402,8 @@ pub fn stats(snap: Snapshot, sub_m: &clap::ArgMatches<'_>) -> Result<(), failure
                 | ZerosimTraceEvent::IrqEnd { .. }
                 | ZerosimTraceEvent::ExceptionEnd { .. }
                 | ZerosimTraceEvent::SoftIrqEnd
-                | ZerosimTraceEvent::VmExit { .. } => {
+                | ZerosimTraceEvent::VmExit { .. }
+                | ZerosimTraceEvent::VmDelayEnd { .. } => {
                     if let Some(top) = stack.last() {
                         if top.matches(ev) {
                             // Match!

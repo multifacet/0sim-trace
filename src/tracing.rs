@@ -183,6 +183,18 @@ impl Trace {
                             qual: raw.extra,
                         }
                     }
+                    (ty, true) if ty == sys::ZEROSIM_TRACE_VMDELAY => {
+                        ZerosimTraceEvent::VmDelayBegin {
+                            vcpu: raw.id as usize,
+                            behind: raw.extra as u64,
+                        }
+                    }
+                    (ty, false) if ty == sys::ZEROSIM_TRACE_VMDELAY => {
+                        ZerosimTraceEvent::VmDelayEnd {
+                            vcpu: raw.id as usize,
+                        }
+                    }
+
                     _ => ZerosimTraceEvent::Unknown {
                         id: raw.id,
                         flags: raw.flags,
@@ -269,6 +281,20 @@ pub enum ZerosimTraceEvent {
         qual: u32,
     },
 
+    /// A VM delay begin.
+    VmDelayBegin {
+        /// The vcpu id of the virtual core we are delaying.
+        vcpu: usize,
+        /// The amount of time the vcpu is ahead of the most lagging vcpu.
+        behind: u64,
+    },
+
+    /// A VM delay end.
+    VmDelayEnd {
+        /// The vcpu id of the virtual core we are delaying.
+        vcpu: usize,
+    },
+
     /// Any other trace
     Unknown { id: u32, flags: u32, extra: u32 },
 }
@@ -309,6 +335,11 @@ impl Hash for ZerosimTraceEvent {
             ZerosimTraceEvent::VmExit { reason, .. } => {
                 7.hash(state);
                 reason.hash(state);
+            }
+            ZerosimTraceEvent::VmDelayBegin { vcpu, .. }
+            | ZerosimTraceEvent::VmDelayEnd { vcpu } => {
+                8.hash(state);
+                vcpu.hash(state);
             }
         }
     }
@@ -353,6 +384,7 @@ mod sys {
     pub const ZEROSIM_TRACE_SYSCALL: u32 = 0x0000_0004;
     pub const ZEROSIM_TRACE_SOFTIRQ: u32 = 0x0000_0005;
     pub const ZEROSIM_TRACE_VMENTEREXIT: u32 = 0x0000_0006;
+    pub const ZEROSIM_TRACE_VMDELAY: u32 = 0x0000_0007;
 
     pub const ZEROSIM_TRACE_START: u32 = 0x8000_0000;
 
@@ -384,6 +416,8 @@ mod sys {
                     "SOFTIRQ"
                 } else if ty == ZEROSIM_TRACE_VMENTEREXIT {
                     "VMENTEREXIT"
+                } else if ty == ZEROSIM_TRACE_VMDELAY {
+                    "VMDELAY"
                 } else {
                     "??"
                 },

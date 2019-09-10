@@ -85,29 +85,32 @@ pub fn dump(
         )?;
 
         for ev in cpu {
-            let name = match ev.event {
-                ZerosimTraceEvent::TaskSwitch { .. } => "TASK_SWITCH",
-                ZerosimTraceEvent::SystemCallStart { .. }
-                | ZerosimTraceEvent::SystemCallEnd { .. } => "SYSCALL",
-                ZerosimTraceEvent::IrqStart { .. } | ZerosimTraceEvent::IrqEnd { .. } => {
-                    "INTERRUPT"
-                }
-                ZerosimTraceEvent::SoftIrqStart { .. } | ZerosimTraceEvent::SoftIrqEnd { .. } => {
-                    "SOFTIRQ"
-                }
-                ZerosimTraceEvent::ExceptionStart { .. }
-                | ZerosimTraceEvent::ExceptionEnd { .. } => "FAULT",
-                ZerosimTraceEvent::VmEnter { .. } => "VMENTER",
-                ZerosimTraceEvent::VmExit { .. } => "VMEXIT",
-                ZerosimTraceEvent::Unknown { .. } => "??",
-            };
+            let name =
+                match ev.event {
+                    ZerosimTraceEvent::TaskSwitch { .. } => "TASK_SWITCH",
+                    ZerosimTraceEvent::SystemCallStart { .. }
+                    | ZerosimTraceEvent::SystemCallEnd { .. } => "SYSCALL",
+                    ZerosimTraceEvent::IrqStart { .. } | ZerosimTraceEvent::IrqEnd { .. } => {
+                        "INTERRUPT"
+                    }
+                    ZerosimTraceEvent::SoftIrqStart { .. }
+                    | ZerosimTraceEvent::SoftIrqEnd { .. } => "SOFTIRQ",
+                    ZerosimTraceEvent::ExceptionStart { .. }
+                    | ZerosimTraceEvent::ExceptionEnd { .. } => "FAULT",
+                    ZerosimTraceEvent::VmEnter { .. } => "VMENTER",
+                    ZerosimTraceEvent::VmExit { .. } => "VMEXIT",
+                    ZerosimTraceEvent::VmDelayBegin { .. }
+                    | ZerosimTraceEvent::VmDelayEnd { .. } => "VMDELAY",
+                    ZerosimTraceEvent::Unknown { .. } => "??",
+                };
 
             let start = match ev.event {
                 ZerosimTraceEvent::SystemCallStart { .. }
                 | ZerosimTraceEvent::IrqStart { .. }
                 | ZerosimTraceEvent::ExceptionStart { .. }
                 | ZerosimTraceEvent::SoftIrqStart
-                | ZerosimTraceEvent::VmEnter { .. } => "START",
+                | ZerosimTraceEvent::VmEnter { .. }
+                | ZerosimTraceEvent::VmDelayBegin { .. } => "START",
 
                 ZerosimTraceEvent::TaskSwitch { .. }
                 | ZerosimTraceEvent::SystemCallEnd { .. }
@@ -115,7 +118,8 @@ pub fn dump(
                 | ZerosimTraceEvent::ExceptionEnd { .. }
                 | ZerosimTraceEvent::SoftIrqEnd
                 | ZerosimTraceEvent::Unknown { .. }
-                | ZerosimTraceEvent::VmExit { .. } => "",
+                | ZerosimTraceEvent::VmExit { .. }
+                | ZerosimTraceEvent::VmDelayEnd { .. } => "",
             };
 
             let id = match ev.event {
@@ -130,6 +134,8 @@ pub fn dump(
                 | ZerosimTraceEvent::ExceptionEnd { error, .. } => error,
                 ZerosimTraceEvent::VmExit { reason, .. } => reason as usize,
                 ZerosimTraceEvent::Unknown { id, .. } => id as usize,
+                ZerosimTraceEvent::VmDelayBegin { vcpu, .. }
+                | ZerosimTraceEvent::VmDelayEnd { vcpu, .. } => vcpu as usize,
             };
 
             let extra = match ev.event {
@@ -139,13 +145,15 @@ pub fn dump(
                 ZerosimTraceEvent::Unknown { extra, .. } => extra as usize,
                 ZerosimTraceEvent::VmEnter { vcpu } => vcpu,
                 ZerosimTraceEvent::VmExit { qual, .. } => qual as usize,
+                ZerosimTraceEvent::VmDelayBegin { behind, .. } => behind as usize,
 
                 ZerosimTraceEvent::ExceptionStart { .. }
                 | ZerosimTraceEvent::SystemCallStart { .. }
                 | ZerosimTraceEvent::SoftIrqStart { .. }
                 | ZerosimTraceEvent::SoftIrqEnd { .. }
                 | ZerosimTraceEvent::IrqStart { .. }
-                | ZerosimTraceEvent::IrqEnd { .. } => 0,
+                | ZerosimTraceEvent::IrqEnd { .. }
+                | ZerosimTraceEvent::VmDelayEnd { .. } => 0,
             };
 
             writeln!(
